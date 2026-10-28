@@ -42,6 +42,12 @@
     (testing "an addition spelled as a clone URL"
       (is (= "metio/sebhoss/dotfiles.yml" (:session-file (by-id "github.com:sebhoss/dotfiles")))))))
 
+(deftest mirrors-are-no-repositories-of-their-own
+  (let [config (assoc-in config [:repositories "github.com:metio/aro" :mirrors] ["git.example.org:infra.run/tools/fahrplan"])
+        repositories (model/repositories config inventory)]
+    (is (= ["git.example.org:infra.run/tools/fahrplan"] (:mirrors (first (filter #(= "github.com:metio/aro" (:id %)) repositories)))))
+    (is (not-any? #(= "git.example.org:infra.run/tools/fahrplan" (:id %)) repositories))))
+
 (deftest archived-and-forks-are-opt-in
   (let [config (update config :sources (fn [ss] (mapv #(if (= "infra" (:id %)) (assoc % :archived true :forks true) %) ss)))]
     (is (= 5 (count (model/repositories config inventory))))))

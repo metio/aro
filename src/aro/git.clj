@@ -56,6 +56,21 @@
 (defn clone-url [{:keys [url host path]}]
   (or url (str host ":" path)))
 
+(defn push-urls
+  "The push URLs of `repository`: its own and those of its mirrors, or none
+  without mirrors, so that a push goes to the fetch URL alone."
+  [{:keys [mirrors] :as repository}]
+  (when (seq mirrors)
+    (into [(clone-url repository)] mirrors)))
+
+(defn- configure-push! [dir repository]
+  (let [gd (git-dir dir)
+        wanted (vec (push-urls repository))]
+    (when (not= wanted (vec (lines (:out (git "--git-dir" gd "config" "--get-all" "remote.origin.pushurl")))))
+      (git "--git-dir" gd "config" "--unset-all" "remote.origin.pushurl")
+      (doseq [url wanted]
+        (git! "--git-dir" gd "config" "--add" "remote.origin.pushurl" url)))))
+
 (defn- ensure-empty! [dir]
   (when (and (fs/exists? dir) (seq (fs/list-dir dir)))
     (throw (ex-info (str dir " is not empty") {:aro/problem :not-empty})))
@@ -92,6 +107,7 @@
           (add-default! gd dir branch)
           (add-development! gd dir branch))
         (git! "clone" "--quiet" "--branch" branch (clone-url repository) dir))
+      (configure-push! dir repository)
       :cloned)))
 
 (defn- worktrees
@@ -178,11 +194,13 @@
                     (skip (str "rebasing its " ahead " commits onto " target " conflicts")))))))))))
 
 (defn update!
-  "Fetches `repository` and syncs each of its checkouts. Returns
+  "Points the push URLs of `repository` at it and its mirrors, fetches it and
+  syncs each of its checkouts. Returns
   {:status :missing|:failed|:done :message :checkouts [result]}."
-  [{:keys [dir branch]}]
+  [{:keys [dir branch] :as repository}]
   (if-let [layout (layout-on-disk dir)]
-    (let [fetch (git "--git-dir" (git-dir dir) "fetch" "--prune" "--quiet" "origin")]
+    (let [_ (configure-push! dir repository)
+          fetch (git "--git-dir" (git-dir dir) "fetch" "--prune" "--quiet" "origin")]
       (if-not (zero? (:exit fetch))
         {:status :failed :message (str "fetch failed: " (str/trim (:err fetch)))}
         {:status :done

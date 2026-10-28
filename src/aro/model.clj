@@ -70,6 +70,7 @@
                      (str (fs/path (:git-root config) (:host record) (:path record))))
             :session-file (or (:session-file override)
                               (str/join "/" (remove str/blank? [session-dir (relative-namespace root (:namespace record)) (str (:name record) ".yml")])))
+            :mirrors (vec (:mirrors override))
             :session (get override :session {})})))
 
 (defn- kept? [config source record]
@@ -79,9 +80,11 @@
 
 (defn repositories
   "The resolved repositories of `sources`, the inventory's records by source
-  id, sorted by id."
+  id, sorted by id. A repository another one names as a mirror is left out,
+  because the clone of that one pushes to it."
   [config sources]
-  (let [by-source (into {} (map (juxt :id identity)) (:sources config))
+  (let [mirrors (set (mapcat :mirrors (vals (:repositories config))))
+        by-source (into {} (map (juxt :id identity)) (:sources config))
         fetched (for [source (:sources config)
                       record (get sources (:id source))
                       :when (kept? config source record)]
@@ -89,7 +92,8 @@
         added (for [addition (:add config)]
                 [(get by-source (:source addition) {:id (:source addition)}) (record-of-addition addition)])
         resolved (for [[source record] (concat fetched added)
-                       :when (not (get-in config [:repositories (id record) :exclude]))]
+                       :when (not (get-in config [:repositories (id record) :exclude]))
+                       :when (not (mirrors (id record)))]
                    (resolve-repository config source record))]
     (->> resolved
          (reduce (fn [by-id repository] (assoc by-id (:id repository) repository)) {})

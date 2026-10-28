@@ -38,6 +38,27 @@
       (is (thrown? Exception (s/git (path "clones" "app" "development") "rev-parse" "--abbrev-ref" "@{upstream}"))))
     (is (= "hello\n" (slurp (path "clones" "app" "development" "README"))))))
 
+(defn- push-urls [dir]
+  (str/split-lines (s/git dir "config" "--get-all" "remote.origin.pushurl")))
+
+(deftest a-push-reaches-the-repository-and-its-mirrors
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        mirror (path "mirror.git")
+        _ (s/git s/*root* "init" "--quiet" "--bare" mirror)
+        r (assoc (repository upstream :plain) :mirrors [mirror])
+        dir (path "clones" "app")]
+    (git/clone! r)
+    (is (= [(:url upstream) mirror] (push-urls dir)))
+    (spit (path "clones" "app" "README") "changed\n")
+    (s/git dir "commit" "--quiet" "--all" "--message" "change")
+    (s/git dir "push" "--quiet" "origin" "main")
+    (is (= (s/git dir "rev-parse" "HEAD")
+           (s/git (:url upstream) "rev-parse" "main")
+           (s/git mirror "rev-parse" "main")))
+    (testing "updating follows the mirrors of the config"
+      (git/update! (assoc r :mirrors []))
+      (is (thrown? Exception (push-urls dir))))))
+
 (deftest a-clone-refuses-a-directory-with-files
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
         r (repository upstream :plain)]
