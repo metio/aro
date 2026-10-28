@@ -59,6 +59,14 @@
       (git/update! (assoc r :mirrors []))
       (is (thrown? Exception (push-urls dir))))))
 
+(deftest a-failed-clone-leaves-nothing-behind
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})]
+    (doseq [layout [:plain :worktrees]]
+      (let [r (assoc (repository upstream layout) :branch "master" :dir (path "clones" (name layout)))]
+        (is (thrown? Exception (git/clone! r)))
+        (is (nil? (git/layout-on-disk (:dir r))))
+        (is (thrown? Exception (git/clone! r)))))))
+
 (deftest a-clone-refuses-a-directory-with-files
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
         r (repository upstream :plain)]

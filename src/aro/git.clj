@@ -88,26 +88,37 @@
       (git! "--git-dir" gd "worktree" "add" (fs/path dir branch) branch)
       (git! "--git-dir" gd "worktree" "add" "--track" "-b" branch (fs/path dir branch) (str "origin/" branch)))))
 
+(defn- clone-into!
+  "Clones `repository` into its empty :dir in its :layout."
+  [{:keys [dir layout branch] :as repository}]
+  (if (= :worktrees layout)
+    (let [gd (git-dir dir)]
+      (git! "clone" "--bare" "--quiet" (clone-url repository) gd)
+      (git! "--git-dir" gd "config" "remote.origin.fetch" "+refs/heads/*:refs/remotes/origin/*")
+      (git! "--git-dir" gd "config" "core.logallrefupdates" "true")
+      (git! "--git-dir" gd "fetch" "--quiet" "origin")
+      (doseq [ref (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname)" "refs/heads"))]
+        (git! "--git-dir" gd "update-ref" "-d" ref))
+      (add-default! gd dir branch)
+      (add-development! gd dir branch))
+    (git! "clone" "--quiet" "--branch" branch (clone-url repository) dir))
+  (configure-push! dir repository))
+
 (defn clone!
   "Clones `repository` into its :dir in its :layout. Returns :cloned, or
-  :exists when the directory already holds a clone."
-  [{:keys [dir layout branch] :as repository}]
+  :exists when the directory already holds a clone. A clone that fails
+  partway is removed, so the next run tries again instead of finding a
+  clone without checkouts."
+  [{:keys [dir] :as repository}]
   (if (layout-on-disk dir)
     :exists
     (do
       (ensure-empty! dir)
-      (if (= :worktrees layout)
-        (let [gd (git-dir dir)]
-          (git! "clone" "--bare" "--quiet" (clone-url repository) gd)
-          (git! "--git-dir" gd "config" "remote.origin.fetch" "+refs/heads/*:refs/remotes/origin/*")
-          (git! "--git-dir" gd "config" "core.logallrefupdates" "true")
-          (git! "--git-dir" gd "fetch" "--quiet" "origin")
-          (doseq [ref (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname)" "refs/heads"))]
-            (git! "--git-dir" gd "update-ref" "-d" ref))
-          (add-default! gd dir branch)
-          (add-development! gd dir branch))
-        (git! "clone" "--quiet" "--branch" branch (clone-url repository) dir))
-      (configure-push! dir repository)
+      (try
+        (clone-into! repository)
+        (catch Exception e
+          (fs/delete-tree dir)
+          (throw e)))
       :cloned)))
 
 (declare worktrees)
