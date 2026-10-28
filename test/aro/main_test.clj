@@ -17,6 +17,10 @@
         (if (instance? Exception body) (throw body) body)
         []))))
 
+(deftest unknown-options-are-refused
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--dryrun" (main/parse ["prune" "--dryrun" "github.com:metio/aro"])))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--verbose" (main/parse ["--verbose" "fetch"]))))
+
 (deftest cloning-stops-at-the-maximum
   (let [upstreams (mapv #(s/upstream! % {"README" "hello\n"}) ["a" "b" "c"])
         repositories (mapv (fn [name upstream] {:id name :url (:url upstream) :dir (path "clones" name) :layout :plain :branch "main"})

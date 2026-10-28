@@ -25,7 +25,7 @@ Commands:
   fetch [SOURCE...]        List the repositories of the sources from their forges into the inventory
   list                     Print every repository with its layout and directory
   generate [--out DIR]     Write the airmux sessions and ttt workspaces
-  compare [--toml FILE...] Compare the generated files with those on disk and print suggested overrides
+  compare [--toml FILE]... Compare the generated files with those on disk and print suggested overrides
   clone [REPO...] [--max N] [--delay SECONDS]
                            Clone the repositories that are missing, one at a time, at most N of them
   update [REPO...] [--jobs N]
@@ -247,7 +247,9 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
       (nil? a) {:args args :opts (cli/parse-opts options {:spec spec})}
       (= "--" a) (recur nil options (into args more))
       (and (str/starts-with? a "-") (not= "-" a))
-      (let [k (keyword (str/replace a #"^--?" ""))
+      (let [k (keyword (str/replace a #"^--?|=.*$" ""))
+            _ (when-not (or (contains? spec k) (= :h k))
+                (throw (ex-info (str "unknown option " a) {:aro/problem :usage})))
             flag? (or (str/includes? a "=") (= :boolean (get-in spec [k :coerce])) (= :h k) (empty? more))]
         (if flag?
           (recur more (conj options a) args)
@@ -255,7 +257,11 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
       :else (recur more options (conj args a)))))
 
 (defn -main [& argv]
-  (let [{:keys [args opts]} (parse argv)
+  (let [{:keys [args opts]} (try (parse argv)
+                                 (catch clojure.lang.ExceptionInfo e
+                                   (error (ex-message e))
+                                   (println usage)
+                                   (System/exit 1)))
         [command & args] args]
     (if (or (:help opts) (nil? command))
       (println usage)
