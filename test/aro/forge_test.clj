@@ -91,6 +91,12 @@
     (forge/list-repositories {:id "cb" :forgejo {:url "https://codeberg.org" :user "sebhoss"}} (fake calls {}) nil)
     (is (= "https://codeberg.org/api/v1/users/sebhoss/repos?limit=50&page=1" (ffirst @calls)))))
 
+(deftest a-server-capping-the-page-size-is-paged-to-the-end
+  (let [repo (fn [i] {:name (str "r" i) :full_name (str "sebhoss/r" i) :default_branch "main" :topics [] :owner {:login "sebhoss"}})
+        pages {"https://codeberg.org/api/v1/users/sebhoss/repos?limit=50&page=1" (mapv repo (range 0 30))
+               "https://codeberg.org/api/v1/users/sebhoss/repos?limit=50&page=2" (mapv repo (range 30 45))}]
+    (is (= 45 (count (forge/list-repositories {:id "cb" :forgejo {:url "https://codeberg.org" :user "sebhoss"}} (fake (atom []) pages) nil))))))
+
 (deftest a-host-override-names-the-records
   (testing "a forge reached at another address keeps its own host"
     (let [pages {"https://localhost:8443/api/v4/groups/g/projects?include_subgroups=true&order_by=path&sort=asc&per_page=100&page=1"

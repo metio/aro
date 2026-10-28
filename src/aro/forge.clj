@@ -35,14 +35,17 @@
 
 (defn- pages
   "Every item of a paginated JSON list, requesting page 1, 2, … of `url-of`
-  until a page holds fewer than `page-size` items. `get-json` returns the
-  parsed body of a URL."
+  with `page-size` items until a page is empty or shorter than the first
+  one. The first page's length is the size the server pages by, because a
+  forge may cap the requested size without saying so. `get-json` returns
+  the parsed body of a URL."
   [get-json page-size url-of]
-  (loop [page 1 items []]
-    (let [batch (get-json (url-of page page-size))]
-      (if (< (count batch) page-size)
+  (loop [page 1 size nil items []]
+    (let [batch (get-json (url-of page page-size))
+          size (or size (count batch))]
+      (if (or (empty? batch) (< (count batch) size))
         (into items batch)
-        (recur (inc page) (into items batch))))))
+        (recur (inc page) size (into items batch))))))
 
 (defn- github-record [host {:keys [name full_name default_branch archived fork topics]}]
   {:host host
