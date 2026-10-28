@@ -386,6 +386,11 @@
                              (str path ": " file)))]
         (throw (ex-info (str dir " has worktrees whose files removing them would delete:\n  " (str/join "\n  " held))
                         {:aro/problem :layout})))
+      (when-let [detached (seq (for [{:keys [path]} others
+                                     :when (seq (lines (git! "-C" path "rev-list" "HEAD" "--not" "--branches" "--remotes")))]
+                                 path))]
+        (throw (ex-info (str dir " has worktrees whose HEAD holds commits no branch holds: " (str/join ", " detached))
+                        {:aro/problem :layout})))
       (doseq [{:keys [path]} others]
         (git! "--git-dir" gd "worktree" "remove" path))
       (let [checkout (:path kept)

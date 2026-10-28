@@ -204,6 +204,19 @@
     (is (thrown? Exception (git/to-plain! dir "main")))
     (is (= "work in progress\n" (slurp (path "clones" "app" "development" "README"))))))
 
+(deftest switching-to-plain-refuses-detached-worktrees-with-their-own-commits
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :worktrees)
+        dir (path "clones" "app")
+        development (path "clones" "app" "development")]
+    (git/clone! r)
+    (s/git development "checkout" "--quiet" "--detach")
+    (spit (path "clones" "app" "development" "README") "mine\n")
+    (s/git development "commit" "--quiet" "--all" "--message" "mine")
+    (let [commit (s/git development "rev-parse" "HEAD")]
+      (is (thrown? Exception (git/to-plain! dir "main")))
+      (is (= commit (s/git development "rev-parse" "HEAD"))))))
+
 (deftest switching-to-plain-refuses-other-worktrees-with-ignored-files
   (let [upstream (s/upstream! "app" {"README" "hello\n" ".gitignore" "secret\n"})
         r (repository upstream :worktrees)
