@@ -172,8 +172,24 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
    :keep {:desc "The branch whose worktree becomes the plain clone"}
    :help {:coerce :boolean :alias :h}})
 
+(defn parse
+  "{:args :opts} of `argv`, options taken from anywhere around the command
+  and its arguments, everything after -- an argument."
+  [argv]
+  (loop [[a & more] argv options [] args []]
+    (cond
+      (nil? a) {:args args :opts (cli/parse-opts options {:spec spec})}
+      (= "--" a) (recur nil options (into args more))
+      (and (str/starts-with? a "-") (not= "-" a))
+      (let [k (keyword (str/replace a #"^--?" ""))
+            flag? (or (str/includes? a "=") (= :boolean (get-in spec [k :coerce])) (= :h k) (empty? more))]
+        (if flag?
+          (recur more (conj options a) args)
+          (recur (rest more) (conj options a (first more)) args)))
+      :else (recur more options (conj args a)))))
+
 (defn -main [& argv]
-  (let [{:keys [args opts]} (cli/parse-args argv {:spec spec})
+  (let [{:keys [args opts]} (parse argv)
         [command & args] args]
     (if (or (:help opts) (nil? command))
       (println usage)

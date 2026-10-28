@@ -31,3 +31,9 @@
 
 (deftest unknown-sources-are-refused
   (is (thrown-with-msg? Exception #"unknown sources: c" (main/fetch! {:sources [{:id "a"}]} ["c"]))))
+
+(deftest options-follow-the-command-and-its-arguments
+  (is (= {:args ["generate"] :opts {:config "c" :out "o" :jobs 4}} (main/parse ["--config" "c" "generate" "--out" "o"])))
+  (is (= {:args ["update" "a" "b"] :opts {:jobs 2}} (main/parse ["update" "a" "--jobs" "2" "b"])))
+  (is (= {:args ["compare"] :opts {:toml ["x" "y"] :jobs 4}} (main/parse ["compare" "--toml" "x" "--toml" "y"])))
+  (is (= {:args ["clone" "--odd"] :opts {:help true :jobs 4}} (main/parse ["clone" "-h" "--" "--odd"]))))
