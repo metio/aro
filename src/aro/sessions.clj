@@ -64,10 +64,14 @@
 (defn ttt-workspace [members dirs]
   {"folders" (mapv (fn [dir] {"path" dir}) (concat (map :dir members) dirs))})
 
-(defn group-session [config group members]
-  (when-let [session (:session group)]
+(defn group-session
+  "The session of `group` opening its workspace, in the common directory of
+  its members, or of its `dirs` without members; none for a group with
+  neither, since it gets no workspace either."
+  [config group members dirs]
+  (when-let [session (and (or (seq members) (seq dirs)) (:session group))]
     (apply-override {"session_name" (:id group)
-                     "working_dir" (home-relative (common-dir (map :dir members)))
+                     "working_dir" (home-relative (common-dir (if (seq members) (map :dir members) dirs)))
                      "windows" [{"edit" {"panes" [{"pane_commands" [(str "ttt --workspace " (home-relative (ttt-file config group)))]}]}}]}
                     (dissoc session :file))))
 
@@ -76,16 +80,15 @@
   workspace}}."
   [config repositories]
   (let [groups (for [group (:groups config)]
-                 [group (model/group-members group repositories)])]
+                 [group (model/group-members group repositories) (model/group-dirs config group)])]
     {:airmux (merge (into {} (for [r repositories :when (not (false? (:session r)))]
                                [(:session-file r) (repository-session r)]))
-                    (into {} (for [[group members] groups
-                                   :let [session (group-session config group members)]
+                    (into {} (for [[group members dirs] groups
+                                   :let [session (group-session config group members dirs)]
                                    :when session]
                                [(get-in group [:session :file] (str (:id group) ".yml")) session]))
                     (update-vals (:sessions config) #(ordered (walk/stringify-keys %))))
-     :ttt (into {} (for [[group members] groups
-                         :let [dirs (model/group-dirs config group)]
+     :ttt (into {} (for [[group members dirs] groups
                          :when (or (seq members) (seq dirs))]
                      [(ttt-file config group) (ttt-workspace members dirs)]))}))
 

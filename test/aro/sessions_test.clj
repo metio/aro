@@ -56,6 +56,11 @@
     (is (= {"folders" [{"path" (str home "/git/github.com/metio/a")} {"path" (str home "/git/github.com/metio/b")}]}
            (get-in plan [:ttt (path "ttt" "charts.ttt")])))))
 
+(deftest a-group-without-members-gets-no-session
+  (let [config {:ttt-dir (path "ttt") :groups [{:id "g" :session {} :match [{:host "nowhere"}]}]}]
+    (is (= {:airmux {"metio/aro.yml" (sessions/repository-session (repository "aro" :plain))} :ttt {}}
+           (sessions/plan config [(repository "aro" :plain)])))))
+
 (deftest group-dirs-add-folders-to-the-workspace
   (let [config {:ttt-dir (path "ttt") :git-root (path "git")
                 :groups [{:id "local" :match [{:namespace "metio"}] :dirs ["github.com/metio/scratch" "~/notes" "/opt/x"]}
