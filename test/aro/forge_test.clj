@@ -3,6 +3,7 @@
 
 (ns aro.forge-test
   (:require [aro.forge :as forge]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
 (defn- fake
@@ -78,6 +79,12 @@
                 {:path "x" :path_with_namespace "genix.net/x" :namespace {:full_path "genix.net"} :topics []}]}
         records (forge/list-repositories {:id "gl" :gitlab {:url "https://gitlab.com" :membership true}} (fake calls pages) "t")]
     (is (= ["sebastian.hoss/zoo" "genix.net/x"] (map :path records)))))
+
+(deftest tokens-stay-out-of-the-curl-arguments
+  (let [{:keys [args in]} (forge/curl-request ["--connect-to" "x"] "https://example.org/api" {"PRIVATE-TOKEN" "secret"})]
+    (is (not-any? #(str/includes? % "secret") args))
+    (is (= ["--header" "@-" "https://example.org/api"] (take-last 3 args)))
+    (is (= "PRIVATE-TOKEN: secret\n" in))))
 
 (deftest forgejo-pages-by-fifty
   (let [calls (atom [])]

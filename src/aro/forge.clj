@@ -123,17 +123,24 @@
     (throw (ex-info (str "the source " (:id source) " names none of :github, :gitlab or :forgejo")
                     {:aro/problem :invalid-source :source (:id source)}))))
 
+(defn curl-request
+  "The curl call GETting `url`: {:args :in}. The headers go to curl's stdin
+  so that a token in them never shows in the process list."
+  [curl-args url headers]
+  {:args (concat ["curl" "--silent" "--show-error" "--location" "--fail-with-body"]
+                 curl-args
+                 (when (seq headers) ["--header" "@-"])
+                 [url])
+   :in (str/join (map (fn [[k v]] (str k ": " v "\n")) headers))})
+
 (defn json-getter
   "A function GETting a URL with headers through curl and parsing the JSON
   body; a failed request throws. `curl-args` go before the URL, such as the
   --connect-to of a tunnel."
   [curl-args]
   (fn [url headers]
-    (let [{:keys [exit out err]} (apply process/shell {:out :string :err :string :continue true}
-                                        (concat ["curl" "--silent" "--show-error" "--location" "--fail-with-body"]
-                                                curl-args
-                                                (mapcat (fn [[k v]] ["--header" (str k ": " v)]) headers)
-                                                [url]))]
+    (let [{:keys [args in]} (curl-request curl-args url headers)
+          {:keys [exit out err]} (apply process/shell {:out :string :err :string :continue true :in in} args)]
       (when-not (zero? exit)
         (throw (ex-info (str "GET " url " failed: " (str/trim (str err " " out)))
                         {:aro/problem :http :url url})))
