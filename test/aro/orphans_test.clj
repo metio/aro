@@ -80,6 +80,15 @@
         (spit (path "git" "c" "stashed" "main" "README") "changed\n")
         (s/git (path "git" "c" "stashed" "main") "stash" "--quiet")
         (is (= ["1 stash entry"] (:reasons (orphans/remove! (:dir r) root))))))
+    (testing "a file beside the worktrees of the worktrees layout"
+      (let [r {:id "example.org:team/stray" :url (:url upstream) :dir (path "git" "e" "stray") :layout :worktrees :branch "main"}]
+        (git/clone! r)
+        (spit (path "git" "e" "stray" "TODO.md") "mine\n")
+        (is (= :kept (:status (orphans/remove! (:dir r) root))))))
+    (testing "a note"
+      (let [dir (clone! upstream "e" "noted")]
+        (s/git dir "notes" "add" "--message" "mine")
+        (is (= :kept (:status (orphans/remove! dir root))))))
     (testing "a changed worktree of the worktrees layout"
       (let [r {:id "example.org:team/app" :url (:url upstream) :dir (path "git" "b" "app") :layout :worktrees :branch "main"}]
         (git/clone! r)

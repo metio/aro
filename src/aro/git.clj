@@ -112,6 +112,14 @@
 
 (declare worktrees)
 
+(defn- strays
+  "The entries of the worktrees layout at `dir` that are neither its .git nor
+  one of `checkouts`."
+  [dir checkouts]
+  (let [dir (fs/canonicalize dir)
+        paths (set (map :path checkouts))]
+    (remove #(or (= ".git" (str (fs/file-name %))) (paths %)) (map str (fs/list-dir dir)))))
+
 (defn local-work
   "What deleting the clone at `dir` would lose: uncommitted changes or
   untracked files in a checkout, stash entries, and commits no remote-tracking
@@ -122,7 +130,9 @@
   (let [run (fn [& args]
               (let [{:keys [exit out err]} (apply git "-C" (str dir) args)]
                 (if (zero? exit) {:lines (vec (lines out))} {:failed (str "git " (first args) " fails: " (str/trim err))})))
-        checkouts (if (= :worktrees (layout-on-disk dir)) (map :path (worktrees dir)) [(str dir)])
+        worktrees-layout (= :worktrees (layout-on-disk dir))
+        checkouts (if worktrees-layout (map :path (worktrees dir)) [(str dir)])
+        beside (when worktrees-layout (strays dir (worktrees dir)))
         dirty (for [checkout checkouts
                     :let [{:keys [exit out err]} (git "-C" checkout "status" "--porcelain")]
                     :when (or (not (zero? exit)) (seq (lines out)))]
@@ -134,6 +144,7 @@
                 {:lines []})
         unpushed (run "rev-list" "--exclude=refs/prefetch/*" "--exclude=refs/stash" "--all" "--not" "--remotes")]
     (cond-> (vec dirty)
+      (seq beside) (conj (str dir " holds files outside its worktrees: " (str/join ", " (sort beside))))
       (:failed stash) (conj (:failed stash))
       (seq (:lines stash)) (conj (str (count (:lines stash)) " stash " (if (< 1 (count (:lines stash))) "entries" "entry")))
       (:failed unpushed) (conj (:failed unpushed))
@@ -362,8 +373,7 @@
           kept (or (first (filter #(= keep (:branch %)) all))
                    (throw (ex-info (str "no worktree of " dir " has " keep " checked out") {:aro/problem :layout})))
           others (remove #{kept} all)
-          paths (set (map :path all))
-          strays (remove #(or (= ".git" (str (fs/file-name %))) (paths (str %))) (map str (fs/list-dir dir)))]
+          strays (strays dir all)]
       (when-not (= dir (str (fs/parent (:path kept))))
         (throw (ex-info (str (:path kept) " is not directly inside " dir) {:aro/problem :layout})))
       (when (seq strays)
