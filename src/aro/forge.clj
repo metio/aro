@@ -126,7 +126,10 @@
           url (base-url (:url gitlab))
           base (cond
                  (:group gitlab) (str url "/api/v4/groups/" (encode (:group gitlab)) "/projects?include_subgroups=true&order_by=path&sort=asc")
-                 (:membership gitlab) (str url "/api/v4/projects?membership=true&order_by=path&sort=asc")
+                 (:membership gitlab) (if token
+                                        (str url "/api/v4/projects?membership=true&order_by=path&sort=asc")
+                                        (throw (ex-info (str "the source " (:id source) " lists the projects of its token's account and needs a :token-command")
+                                                        {:aro/problem :invalid-source :source (:id source)})))
                  token (str url "/api/v4/projects?owned=true&order_by=path&sort=asc")
                  :else (str url "/api/v4/users/" (encode (:user gitlab)) "/projects?order_by=path&sort=asc"))]
       (cond->> (mapv #(gitlab-record (or host (host-of url)) %)
