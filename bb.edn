@@ -1,0 +1,9 @@
+;; SPDX-FileCopyrightText: The aro Authors
+;; SPDX-License-Identifier: 0BSD
+
+{:paths ["src"]
+ :tasks
+ {test {:doc "Runs all unit tests"
+        :extra-paths ["test"]
+        :requires ([aro.test-runner :as runner])
+        :task (runner/run "test")}}}
