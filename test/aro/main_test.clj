@@ -22,10 +22,17 @@
         repositories (mapv (fn [name upstream] {:id name :url (:url upstream) :dir (path "clones" name) :layout :plain :branch "main"})
                            ["a" "b" "c"] upstreams)
         cloned #(set (filter (fn [name] (fs/exists? (path "clones" name ".git"))) ["a" "b" "c"]))]
-    (is (main/clone-all! repositories 2))
+    (is (main/clone-all! repositories 2 nil))
     (is (= #{"a" "b"} (cloned)))
-    (is (main/clone-all! repositories 2))
+    (is (main/clone-all! repositories 2 nil))
     (is (= #{"a" "b" "c"} (cloned)))))
+
+(deftest cloning-waits-the-delay-between-two-clones
+  (let [repositories (mapv (fn [name] {:id name :url (:url (s/upstream! name {"README" "hello\n"})) :dir (path "clones" name) :layout :plain :branch "main"})
+                           ["a" "b" "c"])
+        sleeps (atom [])]
+    (is (main/clone-all! repositories nil 30 :sleep! #(swap! sleeps conj %)))
+    (is (= [30 30] @sleeps))))
 
 (deftest a-failing-source-keeps-its-previous-records
   (let [config {:inventory (path "inventory.edn")

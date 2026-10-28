@@ -25,7 +25,7 @@ Commands:
   list                     Print every repository with its layout and directory
   generate [--out DIR]     Write the airmux sessions and ttt workspaces
   compare [--toml FILE...] Compare the generated files with those on disk and print suggested overrides
-  clone [REPO...] [--max N]
+  clone [REPO...] [--max N] [--delay SECONDS]
                            Clone the repositories that are missing, one at a time, at most N of them
   update [REPO...] [--jobs N]
                            Fetch every clone and bring its branches up to date, keeping local changes
@@ -117,11 +117,14 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
 (defn clone-all!
   "Clones the repositories of `repositories` that are missing, one at a time
   and at most `max` of them, so that a run with many missing ones leaves the
-  rest to later runs. Returns whether none failed."
-  [repositories max]
+  rest to later runs. `delay` seconds pass between two clones. Returns
+  whether none failed."
+  [repositories max delay & {:keys [sleep!] :or {sleep! #(Thread/sleep (long (* 1000 %)))}}]
   (let [missing (remove (comp git/layout-on-disk :dir) repositories)
         [now later] (if max (split-at max missing) [missing []])
-        success (reduce (fn [success r]
+        success (reduce (fn [success [i r]]
+                          (when (and (pos? i) delay (pos? delay))
+                            (sleep! delay))
                           (try
                             (git/clone! r)
                             (ok "cloned " (:id r) " into " (:dir r))
@@ -130,7 +133,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                               (error (:id r) ": " (ex-message e))
                               false)))
                         true
-                        now)]
+                        (map-indexed vector now))]
     (when (seq later)
       (ok (count later) " more missing, left for the next run"))
     success))
@@ -208,6 +211,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
    :toml {:coerce [] :desc "chezmoi data files listing repositories"}
    :jobs {:coerce :long :default 4}
    :max {:coerce :long :desc "Clone at most N repositories"}
+   :delay {:coerce :long :desc "Seconds between two clones"}
    :keep {:desc "The branch whose worktree becomes the plain clone"}
    :schedule {:desc "hourly, daily or weekly"}
    :dry-run {:coerce :boolean :desc "Report what would be deleted"}
@@ -241,7 +245,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                         "list" (list! config)
                         "generate" (generate! config opts)
                         "compare" (compare! config opts)
-                        "clone" (clone-all! (model/find-repositories (repositories config) args) (:max opts))
+                        "clone" (clone-all! (model/find-repositories (repositories config) args) (:max opts) (or (:delay opts) (:delay config)))
                         "update" (run-all! (model/find-repositories (repositories config) args) (:jobs opts) git/update! report-update)
                         "maintain" (maintain-all! (model/find-repositories (repositories config) args) opts)
                         "prune" (prune-all! (model/find-repositories (repositories config) args) opts)

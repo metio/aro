@@ -21,7 +21,7 @@ aro prune [REPO...] [--dry-run]             # delete local branches origin's def
 aro layout REPO worktrees|plain [--keep B]  # switch a clone between the layouts
 ```
 
-`aro clone --max N` clones at most N missing repositories and leaves the rest to the next run, so a timer works through a large backlog over several days instead of saturating the link in one go.
+`aro clone --max N` clones at most N missing repositories and leaves the rest to the next run, so a timer works through a large backlog over several days instead of saturating the link in one go. `--delay SECONDS`, or `:delay` in the config, waits between two clones.
 
 `REPO` is an id such as `github.com:metio/aro`, a clone URL, or a directory inside a clone, so `aro layout . worktrees` works from within a repository. The config is read from `$XDG_CONFIG_HOME/aro/config.edn` unless `--config` names another file.
 
