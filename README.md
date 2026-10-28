@@ -14,12 +14,14 @@ aro fetch [SOURCE...]                       # list the sources' repositories int
 aro list                                    # print every repository with layout, branch and directory
 aro generate [--out DIR]                    # write the airmux sessions and ttt workspaces
 aro compare [--toml FILE...]                # compare with the files on disk, print suggested config
-aro clone [REPO...]                         # clone what is missing
+aro clone [REPO...] [--max N]               # clone what is missing, one at a time, at most N
 aro update [REPO...] [--jobs N]             # fetch and update every clone
 aro maintain --schedule S [REPO...]         # run git's maintenance tasks for hourly, daily or weekly
 aro prune [REPO...] [--dry-run]             # delete local branches origin's default branch holds
 aro layout REPO worktrees|plain [--keep B]  # switch a clone between the layouts
 ```
+
+`aro clone --max N` clones at most N missing repositories and leaves the rest to the next run, so a timer works through a large backlog over several days instead of saturating the link in one go.
 
 `REPO` is an id such as `github.com:metio/aro`, a clone URL, or a directory inside a clone, so `aro layout . worktrees` works from within a repository. The config is read from `$XDG_CONFIG_HOME/aro/config.edn` unless `--config` names another file.
 

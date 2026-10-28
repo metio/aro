@@ -25,7 +25,8 @@ Commands:
   list                     Print every repository with its layout and directory
   generate [--out DIR]     Write the airmux sessions and ttt workspaces
   compare [--toml FILE...] Compare the generated files with those on disk and print suggested overrides
-  clone [REPO...]          Clone the repositories that are missing
+  clone [REPO...] [--max N]
+                           Clone the repositories that are missing, one at a time, at most N of them
   update [REPO...] [--jobs N]
                            Fetch every clone and bring its branches up to date, keeping local changes
   maintain --schedule hourly|daily|weekly [REPO...] [--jobs N]
@@ -113,18 +114,26 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
     (print-edn ":sessions to keep verbatim" (:sessions result))
     true))
 
-(defn- clone! [config args]
-  (reduce (fn [success r]
-            (try
-              (case (git/clone! r)
-                :cloned (ok "cloned " (:id r) " into " (:dir r))
-                :exists nil)
-              success
-              (catch Exception e
-                (error (:id r) ": " (ex-message e))
-                false)))
-          true
-          (model/find-repositories (repositories config) args)))
+(defn clone-all!
+  "Clones the repositories of `repositories` that are missing, one at a time
+  and at most `max` of them, so that a run with many missing ones leaves the
+  rest to later runs. Returns whether none failed."
+  [repositories max]
+  (let [missing (remove (comp git/layout-on-disk :dir) repositories)
+        [now later] (if max (split-at max missing) [missing []])
+        success (reduce (fn [success r]
+                          (try
+                            (git/clone! r)
+                            (ok "cloned " (:id r) " into " (:dir r))
+                            success
+                            (catch Exception e
+                              (error (:id r) ": " (ex-message e))
+                              false)))
+                        true
+                        now)]
+    (when (seq later)
+      (ok (count later) " more missing, left for the next run"))
+    success))
 
 (defn- report-update [{:keys [id]} {:keys [status message checkouts]}]
   (case status
@@ -198,6 +207,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
    :out {:desc "Write generated files below this directory"}
    :toml {:coerce [] :desc "chezmoi data files listing repositories"}
    :jobs {:coerce :long :default 4}
+   :max {:coerce :long :desc "Clone at most N repositories"}
    :keep {:desc "The branch whose worktree becomes the plain clone"}
    :schedule {:desc "hourly, daily or weekly"}
    :dry-run {:coerce :boolean :desc "Report what would be deleted"}
@@ -231,7 +241,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                         "list" (list! config)
                         "generate" (generate! config opts)
                         "compare" (compare! config opts)
-                        "clone" (clone! config args)
+                        "clone" (clone-all! (model/find-repositories (repositories config) args) (:max opts))
                         "update" (run-all! (model/find-repositories (repositories config) args) (:jobs opts) git/update! report-update)
                         "maintain" (maintain-all! (model/find-repositories (repositories config) args) opts)
                         "prune" (prune-all! (model/find-repositories (repositories config) args) opts)

@@ -5,6 +5,7 @@
   (:require [aro.inventory :as inventory]
             [aro.main :as main]
             [aro.support :as s :refer [path]]
+            [babashka.fs :as fs]
             [clojure.test :refer [deftest is use-fixtures]]))
 
 (use-fixtures :each s/with-root)
@@ -15,6 +16,16 @@
       (if-let [body (get pages url)]
         (if (instance? Exception body) (throw body) body)
         []))))
+
+(deftest cloning-stops-at-the-maximum
+  (let [upstreams (mapv #(s/upstream! % {"README" "hello\n"}) ["a" "b" "c"])
+        repositories (mapv (fn [name upstream] {:id name :url (:url upstream) :dir (path "clones" name) :layout :plain :branch "main"})
+                           ["a" "b" "c"] upstreams)
+        cloned #(set (filter (fn [name] (fs/exists? (path "clones" name ".git"))) ["a" "b" "c"]))]
+    (is (main/clone-all! repositories 2))
+    (is (= #{"a" "b"} (cloned)))
+    (is (main/clone-all! repositories 2))
+    (is (= #{"a" "b" "c"} (cloned)))))
 
 (deftest a-failing-source-keeps-its-previous-records
   (let [config {:inventory (path "inventory.edn")
