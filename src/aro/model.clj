@@ -24,14 +24,18 @@
                           (throw (ex-info (str s " names no host:path") {:aro/problem :invalid-id})))]
     {:host host :path path}))
 
-(defn- record-of-addition [{:keys [id] :as addition}]
+(defn- record-of-addition
+  "The record of `addition`, over the `fetched` record of the same id when a
+  source lists it too, so its default branch and topics remain."
+  [{:keys [id] :as addition} fetched]
   (let [{:keys [host path]} (parse-id id)
         segments (str/split path #"/")]
-    (merge {:host host
+    (merge {:topics []}
+           fetched
+           {:host host
             :path path
             :name (last segments)
-            :namespace (str/join "/" (butlast segments))
-            :topics []}
+            :namespace (str/join "/" (butlast segments))}
            (select-keys addition [:default-branch :topics]))))
 
 (defn- source-root
@@ -89,8 +93,10 @@
                       record (get sources (:id source))
                       :when (kept? config source record)]
                   [source record])
+        listed (into {} (for [records (vals sources) record records] [(id record) record]))
         added (for [addition (:add config)]
-                [(get by-source (:source addition) {:id (:source addition)}) (record-of-addition addition)])
+                [(get by-source (:source addition) {:id (:source addition)})
+                 (record-of-addition addition (get listed (id (parse-id (:id addition)))))])
         resolved (for [[source record] (concat fetched added)
                        :when (not (get-in config [:repositories (id record) :exclude]))
                        :when (not (mirrors (id record)))]

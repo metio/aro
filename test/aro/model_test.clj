@@ -42,6 +42,12 @@
     (testing "an addition spelled as a clone URL"
       (is (= "metio/sebhoss/dotfiles.yml" (:session-file (by-id "github.com:sebhoss/dotfiles")))))))
 
+(deftest an-addition-the-inventory-holds-keeps-the-fetched-record
+  (let [config (update config :add conj {:id "git.example.org:infra.run/tools/fahrplan" :source "metio"})
+        inventory (assoc inventory "infra" [(record "git.example.org" "infra.run/tools/fahrplan" :default-branch "trunk" :topics ["helm"])])
+        fahrplan (first (filter #(= "git.example.org:infra.run/tools/fahrplan" (:id %)) (model/repositories config inventory)))]
+    (is (= ["trunk" ["helm"] "metio"] ((juxt :branch :topics :source) fahrplan)))))
+
 (deftest mirrors-are-no-repositories-of-their-own
   (let [config (assoc-in config [:repositories "github.com:metio/aro" :mirrors] ["git.example.org:infra.run/tools/fahrplan"])
         repositories (model/repositories config inventory)]
