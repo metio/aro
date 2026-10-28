@@ -56,6 +56,16 @@
     (is (= {"folders" [{"path" (str home "/git/github.com/metio/a")} {"path" (str home "/git/github.com/metio/b")}]}
            (get-in plan [:ttt (path "ttt" "charts.ttt")])))))
 
+(deftest repositories-of-the-same-name-get-distinct-session-names
+  (let [a (repository "grafana" :plain :id "x.org:team/dashboards/grafana" :namespace "team/dashboards" :session-file "a.yml")
+        b (repository "grafana" :plain :id "x.org:team/charts/grafana" :namespace "team/charts" :session-file "b.yml")
+        c (repository "other" :plain :session-file "c.yml")
+        named (repository "grafana" :plain :id "x.org:team/named/grafana" :namespace "team/named" :session-file "d.yml"
+                          :session {:session_name "mine"})
+        airmux (:airmux (sessions/plan {} [a b c named]))]
+    (is (= ["dashboards-grafana" "charts-grafana" "other" "mine"]
+           (map #(get-in airmux [% "session_name"]) ["a.yml" "b.yml" "c.yml" "d.yml"])))))
+
 (deftest a-group-without-members-gets-no-session
   (let [config {:ttt-dir (path "ttt") :groups [{:id "g" :session {} :match [{:host "nowhere"}]}]}]
     (is (= {:airmux {"metio/aro.yml" (sessions/repository-session (repository "aro" :plain))} :ttt {}}

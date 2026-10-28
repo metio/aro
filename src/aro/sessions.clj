@@ -75,14 +75,28 @@
                      "windows" [{"edit" {"panes" [{"pane_commands" [(str "ttt --workspace " (home-relative (ttt-file config group)))]}]}}]}
                     (dissoc session :file))))
 
+(defn- distinct-names
+  "The `sessions` of `repositories`, where a generated session_name that
+  several sessions share gets the last segment of the repository's namespace
+  in front, because tmux opens one session per name. A session_name the
+  config sets is kept."
+  [repositories sessions]
+  (let [taken (frequencies (map #(get % "session_name") sessions))]
+    (map (fn [{:keys [namespace name session]} generated]
+           (if (and (< 1 (taken (get generated "session_name")))
+                    (not (contains? (walk/stringify-keys session) "session_name")))
+             (assoc generated "session_name" (model/session-name (str/join "-" (remove str/blank? [(last (str/split (or namespace "") #"/")) name]))))
+             generated))
+         repositories sessions)))
+
 (defn plan
   "Every generated file as {:airmux {relative-path session} :ttt {path
   workspace}}."
   [config repositories]
   (let [groups (for [group (:groups config)]
                  [group (model/group-members group repositories) (model/group-dirs config group)])]
-    {:airmux (merge (into {} (for [r repositories :when (not (false? (:session r)))]
-                               [(:session-file r) (repository-session r)]))
+    {:airmux (merge (let [rs (remove #(false? (:session %)) repositories)]
+                      (zipmap (map :session-file rs) (distinct-names rs (map repository-session rs))))
                     (into {} (for [[group members dirs] groups
                                    :let [session (group-session config group members dirs)]
                                    :when session]
