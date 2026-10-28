@@ -49,8 +49,8 @@ Comment lines at the top of the inventory, such as a license header, survive a r
 
 | Key | Meaning |
 | --- | --- |
-| `:github`, `:gitlab`, `:forgejo` | The forge and the organization, user or group to list. GitLab groups include their subgroups. |
-| `:token-command` | A command printing a token on its first line, for private repositories. A GitHub or Forgejo `:user` with a token lists the repositories the token's account owns, private ones included; a token of another account lists none. |
+| `:github`, `:gitlab`, `:forgejo` | The forge and the organization, user or group to list: `:org` or `:user` on GitHub and Forgejo, `:group` or `:user` on GitLab, or `:membership true` for every GitLab project the token's account is a member of. GitLab groups include their subgroups. |
+| `:token-command` | A command printing a token on its first line, for private repositories. A `:user` with a token lists the repositories the token's account owns, private ones included; a token of another account lists none. |
 | `:tunnel` | An SSH port forward for a forge API that only listens on its own host. |
 | `:host` | The host recorded for the repositories, when the URL differs from the host used for cloning. |
 | `:archived`, `:forks` | `true` keeps archived repositories or forks, which are left out otherwise. Disabled GitHub repositories, which cannot be cloned, are always left out. |

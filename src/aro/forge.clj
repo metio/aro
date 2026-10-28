@@ -3,7 +3,8 @@
 
 (ns aro.forge
   "Listing the repositories of a source from its forge: a GitHub or Forgejo
-  organization or user, or a GitLab group with its subgroups. Each repository
+  organization or user, a GitLab group with its subgroups, a GitLab user, or
+  every GitLab project the token's account is a member of. Each repository
   becomes a
   record of what the rest of aro needs: host, path, name, namespace, default
   branch, whether it is archived or a fork, and its topics."
@@ -77,8 +78,9 @@
   "The repository records of `source`. `get-json` takes a URL and the request
   headers and returns the parsed JSON body. A source's :host replaces the host
   of its URL in the records, for a forge reached through another address.
-  A GitHub or Forgejo user with a token lists the repositories the token's
-  account owns, private ones included; without one, only the public ones.
+  A GitHub, Forgejo or GitLab user with a token lists the repositories the
+  token's account owns, private ones included; without one, only the public
+  ones.
   Disabled repositories cannot be cloned and are left out."
   [{:keys [github gitlab forgejo host] :as source} get-json token]
   (cond
@@ -108,9 +110,14 @@
     gitlab
     (let [headers (cond-> {} token (assoc "PRIVATE-TOKEN" token))
           url (base-url (:url gitlab))
-          base (str url "/api/v4/groups/" (encode (:group gitlab)) "/projects?include_subgroups=true&order_by=path&sort=asc")]
-      (mapv #(gitlab-record (or host (host-of url)) %)
-            (pages #(get-json % headers) 100 #(str base "&per_page=" %2 "&page=" %1))))
+          base (cond
+                 (:group gitlab) (str url "/api/v4/groups/" (encode (:group gitlab)) "/projects?include_subgroups=true&order_by=path&sort=asc")
+                 (:membership gitlab) (str url "/api/v4/projects?membership=true&order_by=path&sort=asc")
+                 token (str url "/api/v4/projects?owned=true&order_by=path&sort=asc")
+                 :else (str url "/api/v4/users/" (encode (:user gitlab)) "/projects?order_by=path&sort=asc"))]
+      (cond->> (mapv #(gitlab-record (or host (host-of url)) %)
+                     (pages #(get-json % headers) 100 #(str base "&per_page=" %2 "&page=" %1)))
+        (and token (:user gitlab)) (owned-by (:user gitlab))))
 
     :else
     (throw (ex-info (str "the source " (:id source) " names none of :github, :gitlab or :forgejo")

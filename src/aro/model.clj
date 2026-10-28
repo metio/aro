@@ -37,7 +37,7 @@
 (defn- source-root
   "The namespace a source's session files are relative to."
   [{:keys [root github gitlab forgejo]}]
-  (or root (:group gitlab) (:org github) (:user github) (:org forgejo) (:user forgejo) ""))
+  (or root (:group gitlab) (:user gitlab) (:org github) (:user github) (:org forgejo) (:user forgejo) ""))
 
 (defn- relative-namespace [root namespace]
   (cond

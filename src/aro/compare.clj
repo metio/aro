@@ -83,7 +83,7 @@
   [config id]
   (let [[host path] (str/split id #":" 2)]
     (:id (first (filter (fn [{:keys [root github gitlab forgejo] :as source}]
-                          (let [root (or root (:group gitlab) (:org github) (:user github) (:org forgejo) (:user forgejo))]
+                          (let [root (or root (:group gitlab) (:user gitlab) (:org github) (:user github) (:org forgejo) (:user forgejo))]
                             (and (= host (source-host source))
                                  (or (nil? root) (str/starts-with? path (str root "/"))))))
                         (:sources config))))))

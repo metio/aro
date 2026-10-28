@@ -58,6 +58,27 @@
            records))
     (is (= "t" (get-in @calls [0 1 "PRIVATE-TOKEN"])))))
 
+(deftest gitlab-users-list-their-own-projects
+  (let [calls (atom [])
+        pages {"https://gitlab.com/api/v4/projects?owned=true&order_by=path&sort=asc&per_page=100&page=1"
+               [{:path "zoo" :path_with_namespace "sebastian.hoss/zoo" :namespace {:full_path "sebastian.hoss"} :topics []}
+                {:path "x" :path_with_namespace "someone/x" :namespace {:full_path "someone"} :topics []}]}
+        records (forge/list-repositories {:id "gl" :gitlab {:url "https://gitlab.com" :user "sebastian.hoss"}} (fake calls pages) "t")]
+    (is (= ["sebastian.hoss/zoo"] (map :path records)))
+    (is (= "t" (get-in @calls [0 1 "PRIVATE-TOKEN"]))))
+  (testing "without a token, the public projects of the user"
+    (let [calls (atom [])]
+      (forge/list-repositories {:id "gl" :gitlab {:url "https://gitlab.com" :user "sebastian.hoss"}} (fake calls {}) nil)
+      (is (= "https://gitlab.com/api/v4/users/sebastian.hoss/projects?order_by=path&sort=asc&per_page=100&page=1" (ffirst @calls))))))
+
+(deftest gitlab-membership-lists-every-project-of-the-token
+  (let [calls (atom [])
+        pages {"https://gitlab.com/api/v4/projects?membership=true&order_by=path&sort=asc&per_page=100&page=1"
+               [{:path "zoo" :path_with_namespace "sebastian.hoss/zoo" :namespace {:full_path "sebastian.hoss"} :topics []}
+                {:path "x" :path_with_namespace "genix.net/x" :namespace {:full_path "genix.net"} :topics []}]}
+        records (forge/list-repositories {:id "gl" :gitlab {:url "https://gitlab.com" :membership true}} (fake calls pages) "t")]
+    (is (= ["sebastian.hoss/zoo" "genix.net/x"] (map :path records)))))
+
 (deftest forgejo-pages-by-fifty
   (let [calls (atom [])]
     (forge/list-repositories {:id "cb" :forgejo {:url "https://codeberg.org" :user "sebhoss"}} (fake calls {}) nil)
