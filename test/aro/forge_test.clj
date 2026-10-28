@@ -97,6 +97,12 @@
                "https://codeberg.org/api/v1/users/sebhoss/repos?limit=50&page=2" (mapv repo (range 30 45))}]
     (is (= 45 (count (forge/list-repositories {:id "cb" :forgejo {:url "https://codeberg.org" :user "sebhoss"}} (fake (atom []) pages) nil))))))
 
+(deftest a-repository-on-two-pages-is-listed-once
+  (let [repo (fn [i] {:name (str "r" i) :full_name (str "metio/r" i) :default_branch "main" :topics []})
+        pages {"https://api.github.com/orgs/metio/repos?type=all&per_page=100&page=1" (mapv repo (range 0 100))
+               "https://api.github.com/orgs/metio/repos?type=all&per_page=100&page=2" (mapv repo (range 99 120))}]
+    (is (= 120 (count (forge/list-repositories {:id "m" :github {:org "metio"}} (fake (atom []) pages) nil))))))
+
 (deftest a-host-override-names-the-records
   (testing "a forge reached at another address keeps its own host"
     (let [pages {"https://localhost:8443/api/v4/groups/g/projects?include_subgroups=true&order_by=path&sort=asc&per_page=100&page=1"

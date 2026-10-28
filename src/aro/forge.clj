@@ -77,14 +77,25 @@
   [user records]
   (filterv #(= (str/lower-case user) (str/lower-case (:namespace %))) records))
 
+(declare listed-repositories)
+
 (defn list-repositories
-  "The repository records of `source`. `get-json` takes a URL and the request
+  "The repository records of `source`, each path once, since a repository
+  created or deleted during the listing shifts the pages under it. `get-json` takes a URL and the request
   headers and returns the parsed JSON body. A source's :host replaces the host
   of its URL in the records, for a forge reached through another address.
   A GitHub, Forgejo or GitLab user with a token lists the repositories the
   token's account owns, private ones included; without one, only the public
   ones.
   Disabled repositories cannot be cloned and are left out."
+  [source get-json token]
+  (loop [[record & more :as records] (listed-repositories source get-json token) seen #{} kept []]
+    (cond
+      (empty? records) kept
+      (seen (:path record)) (recur more seen kept)
+      :else (recur more (conj seen (:path record)) (conj kept record)))))
+
+(defn- listed-repositories
   [{:keys [github gitlab forgejo host] :as source} get-json token]
   (cond
     github
