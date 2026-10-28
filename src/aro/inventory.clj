@@ -49,11 +49,18 @@
          "{" (str/join "\n " body) "}\n")))
 
 (defn write-inventory!
-  "Writes `inventory` to `path` and returns whether the content changed."
+  "Writes `inventory` to `path` and returns whether the content changed. The
+  text goes to a file next to it first and replaces the inventory in one
+  rename, so a write that stops halfway never leaves a truncated inventory,
+  which would read as one without the lost sources."
   [path inventory]
   (let [text (render inventory)
         before (when (fs/exists? path) (slurp (str path)))]
     (when (not= text before)
-      (fs/create-dirs (fs/parent (fs/absolutize path)))
-      (spit (str path) text))
+      (let [dir (fs/create-dirs (fs/parent (fs/absolutize path)))
+            temp (fs/create-temp-file {:dir dir :prefix ".inventory-" :suffix ".edn" :posix-file-permissions "rw-r--r--"})]
+        (try
+          (spit (str temp) text)
+          (fs/move temp path {:replace-existing true :atomic-move true})
+          (finally (fs/delete-if-exists temp)))))
     (not= text before)))

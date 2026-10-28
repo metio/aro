@@ -4,6 +4,7 @@
 (ns aro.inventory-test
   (:require [aro.inventory :as inventory]
             [aro.support :as s :refer [path]]
+            [babashka.fs :as fs]
             [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]))
 
@@ -25,6 +26,21 @@
     (is (true? (inventory/write-inventory! file (assoc (inventory/read-inventory file) :sources {"metio" [record]}))))
     (is (str/starts-with? (slurp file) ";; a license header\n\n{\"metio\""))
     (is (false? (inventory/write-inventory! file (inventory/read-inventory file))))))
+
+(deftest a-rewrite-replaces-the-file-in-one-step
+  (let [file (path "state" "inventory.edn")
+        inode #(get (fs/read-attributes file "unix:ino") :ino)]
+    (fs/create-dirs (path "state"))
+    (spit file "{}\n")
+    (let [before (inode)]
+      (inventory/write-inventory! file {:header "" :sources {"metio" [record]}})
+      (is (not= before (inode)))
+      (is (= ["inventory.edn"] (map (comp str fs/file-name) (fs/list-dir (path "state"))))))))
+
+(deftest a-first-write-creates-the-directory
+  (let [file (path "new" "inventory.edn")]
+    (is (true? (inventory/write-inventory! file {:header "" :sources {}})))
+    (is (= "rw-r--r--" (fs/posix->str (fs/posix-file-permissions file))))))
 
 (deftest a-missing-inventory-is-empty
   (is (= {:header "" :sources {}} (inventory/read-inventory (path "none.edn")))))
