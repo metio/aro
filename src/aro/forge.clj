@@ -122,7 +122,7 @@
         (and token (not (:org forgejo))) (owned-by (:user forgejo))))
 
     gitlab
-    (let [headers (cond-> {} token (assoc "PRIVATE-TOKEN" token))
+    (let [headers (cond-> {} token (assoc "Authorization" (str "Bearer " token)))
           url (base-url (:url gitlab))
           base (cond
                  (:group gitlab) (str url "/api/v4/groups/" (encode (:group gitlab)) "/projects?include_subgroups=true&order_by=path&sort=asc")

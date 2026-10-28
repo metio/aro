@@ -57,7 +57,7 @@
     (is (= [{:host "git.example.org" :path "infra.run/tools/fahrplan" :name "fahrplan" :namespace "infra.run/tools"
              :default-branch "main" :archived true :fork true :topics ["go"]}]
            records))
-    (is (= "t" (get-in @calls [0 1 "PRIVATE-TOKEN"])))))
+    (is (= {"Authorization" "Bearer t"} (get-in @calls [0 1])))))
 
 (deftest gitlab-users-list-their-own-projects
   (let [calls (atom [])
@@ -66,7 +66,7 @@
                 {:path "x" :path_with_namespace "someone/x" :namespace {:full_path "someone"} :topics []}]}
         records (forge/list-repositories {:id "gl" :gitlab {:url "https://gitlab.com" :user "sebastian.hoss"}} (fake calls pages) "t")]
     (is (= ["sebastian.hoss/zoo"] (map :path records)))
-    (is (= "t" (get-in @calls [0 1 "PRIVATE-TOKEN"]))))
+    (is (= {"Authorization" "Bearer t"} (get-in @calls [0 1]))))
   (testing "without a token, the public projects of the user"
     (let [calls (atom [])]
       (forge/list-repositories {:id "gl" :gitlab {:url "https://gitlab.com" :user "sebastian.hoss"}} (fake calls {}) nil)
@@ -81,10 +81,10 @@
     (is (= ["sebastian.hoss/zoo" "genix.net/x"] (map :path records)))))
 
 (deftest tokens-stay-out-of-the-curl-arguments
-  (let [{:keys [args in]} (forge/curl-request ["--connect-to" "x"] "https://example.org/api" {"PRIVATE-TOKEN" "secret"})]
+  (let [{:keys [args in]} (forge/curl-request ["--connect-to" "x"] "https://example.org/api" {"Authorization" "Bearer secret"})]
     (is (not-any? #(str/includes? % "secret") args))
     (is (= ["--header" "@-" "https://example.org/api"] (take-last 3 args)))
-    (is (= "PRIVATE-TOKEN: secret\n" in))))
+    (is (= "Authorization: Bearer secret\n" in))))
 
 (deftest forgejo-pages-by-fifty
   (let [calls (atom [])]
