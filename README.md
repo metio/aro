@@ -16,6 +16,8 @@ aro generate [--out DIR]                    # write the airmux sessions and ttt 
 aro compare [--toml FILE...]                # compare with the files on disk, print suggested config
 aro clone [REPO...]                         # clone what is missing
 aro update [REPO...] [--jobs N]             # fetch and update every clone
+aro maintain --schedule S [REPO...]         # run git's maintenance tasks for hourly, daily or weekly
+aro prune [REPO...] [--dry-run]             # delete local branches origin's default branch holds
 aro layout REPO worktrees|plain [--keep B]  # switch a clone between the layouts
 ```
 
@@ -105,6 +107,12 @@ The plain layout is an ordinary clone. The worktrees layout is a bare repository
 - A detached HEAD, a merge or rebase in progress, a branch without upstream, and a branch whose upstream is gone are skipped.
 
 Skipped branches print `[SKIP]` with the reason. A failed fetch prints `[ERROR]` and makes the command exit non-zero, which suits a systemd timer with `OnFailure=`. Git runs with `GIT_TERMINAL_PROMPT=0` and, unless `GIT_SSH_COMMAND` is set, `ssh -o BatchMode=yes`, so a run without a terminal fails instead of waiting for input.
+
+## Maintenance and pruning
+
+`aro maintain --schedule hourly|daily|weekly` runs `git maintenance run` for that schedule in every clone, with the tasks of git's incremental strategy: `prefetch` and `commit-graph` hourly, `loose-objects` and `incremental-repack` daily, and `pack-refs` weekly. Without a strategy, a scheduled run has no tasks, and aro sets it for the run instead of in each clone's config. Clones that do not exist yet are skipped, so the list of clones comes from the config and the inventory alone. A templated systemd service running `aro maintain --schedule=%i`, started by a timer per schedule, keeps every clone maintained.
+
+`aro prune` deletes the local branches whose commits the default branch of origin already holds, such as branches merged upstream and branches never committed to. The default branch, `development` and every branch a checkout has checked out stay. A branch whose upstream is gone but that holds commits origin lacks, such as one deleted after a squash merge, stays too and is reported with `[SKIP]`. `--dry-run` lists what would be deleted.
 
 ## Generating and comparing
 

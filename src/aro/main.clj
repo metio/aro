@@ -28,6 +28,10 @@ Commands:
   clone [REPO...]          Clone the repositories that are missing
   update [REPO...] [--jobs N]
                            Fetch every clone and bring its branches up to date, keeping local changes
+  maintain --schedule hourly|daily|weekly [REPO...] [--jobs N]
+                           Run git's maintenance tasks for the schedule in every clone
+  prune [REPO...] [--dry-run] [--jobs N]
+                           Delete local branches whose commits the default branch of origin holds
   layout REPO worktrees|plain [--keep BRANCH]
                            Switch a clone between the worktrees and the plain layout
 
@@ -133,26 +137,51 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
               :skipped (skipped id " (" checkout "): " message)
               :failed (error id " (" checkout "): " message)))))
 
-(defn update-all!
-  "Updates `repositories` with at most `jobs` at a time, printing each
-  result once it is done. Returns whether none failed."
-  [repositories jobs]
+(defn- report-maintain [{:keys [id]} {:keys [status message]}]
+  (case status
+    :missing nil
+    :failed (error id ": " message)
+    :done nil))
+
+(defn- report-prune [{:keys [id]} {:keys [status message deleted kept]} dry-run]
+  (case status
+    :missing nil
+    :failed (error id ": " message)
+    :done (do (doseq [branch deleted]
+                (ok id ": " (if dry-run "would delete " "deleted ") branch ", which origin holds"))
+              (doseq [{:keys [branch message]} kept]
+                (skipped id ": kept " branch ": " message)))))
+
+(defn- failed? [{:keys [status checkouts]}]
+  (or (= :failed status) (some #(= :failed (:status %)) checkouts)))
+
+(defn run-all!
+  "Runs `work` on each of `repositories` with at most `jobs` at a time and
+  passes each repository and its result to `report` once it is done.
+  Returns whether none failed."
+  [repositories jobs work report]
   (let [permits (Semaphore. (max 1 jobs))
         lock (Object.)
         tasks (mapv (fn [r]
                       (future
                         (.acquire permits)
                         (try
-                          (let [result (try (git/update! r)
+                          (let [result (try (work r)
                                             (catch Exception e {:status :failed :message (ex-message e)}))]
-                            (locking lock (report-update r result))
+                            (locking lock (report r result))
                             result)
                           (finally (.release permits)))))
-                    repositories)
-        results (mapv deref tasks)]
-    (not-any? (fn [{:keys [status checkouts]}]
-                (or (= :failed status) (some #(= :failed (:status %)) checkouts)))
-              results)))
+                    repositories)]
+    (not-any? failed? (mapv deref tasks))))
+
+(defn- maintain-all! [repositories {:keys [schedule jobs]}]
+  (when-not (git/schedules schedule)
+    (throw (ex-info (str "--schedule is one of " (str/join ", " (sort git/schedules)))
+                    {:aro/problem :usage})))
+  (run-all! repositories jobs #(git/maintain! % schedule) report-maintain))
+
+(defn- prune-all! [repositories {:keys [dry-run jobs]}]
+  (run-all! repositories jobs #(git/prune-branches! % dry-run) #(report-prune %1 %2 dry-run)))
 
 (defn- layout! [config [repo target] {:keys [keep]}]
   (let [[r] (model/find-repositories (repositories config) [repo])]
@@ -170,6 +199,8 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
    :toml {:coerce [] :desc "chezmoi data files listing repositories"}
    :jobs {:coerce :long :default 4}
    :keep {:desc "The branch whose worktree becomes the plain clone"}
+   :schedule {:desc "hourly, daily or weekly"}
+   :dry-run {:coerce :boolean :desc "Report what would be deleted"}
    :help {:coerce :boolean :alias :h}})
 
 (defn parse
@@ -201,7 +232,9 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                         "generate" (generate! config opts)
                         "compare" (compare! config opts)
                         "clone" (clone! config args)
-                        "update" (update-all! (model/find-repositories (repositories config) args) (:jobs opts))
+                        "update" (run-all! (model/find-repositories (repositories config) args) (:jobs opts) git/update! report-update)
+                        "maintain" (maintain-all! (model/find-repositories (repositories config) args) opts)
+                        "prune" (prune-all! (model/find-repositories (repositories config) args) opts)
                         "layout" (layout! config args opts)
                         (do (error "unknown command " command) (println usage) false))]
           (shutdown-agents)

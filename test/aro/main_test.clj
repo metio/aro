@@ -36,4 +36,6 @@
   (is (= {:args ["generate"] :opts {:config "c" :out "o" :jobs 4}} (main/parse ["--config" "c" "generate" "--out" "o"])))
   (is (= {:args ["update" "a" "b"] :opts {:jobs 2}} (main/parse ["update" "a" "--jobs" "2" "b"])))
   (is (= {:args ["compare"] :opts {:toml ["x" "y"] :jobs 4}} (main/parse ["compare" "--toml" "x" "--toml" "y"])))
+  (is (= {:args ["prune" "x"] :opts {:dry-run true :jobs 4}} (main/parse ["prune" "--dry-run" "x"])))
+  (is (= {:args ["maintain"] :opts {:schedule "daily" :jobs 4}} (main/parse ["maintain" "--schedule" "daily"])))
   (is (= {:args ["clone" "--odd"] :opts {:help true :jobs 4}} (main/parse ["clone" "-h" "--" "--odd"]))))

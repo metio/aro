@@ -209,3 +209,55 @@
     (is (= :worktrees (git/layout-on-disk dir)))
     (s/push! upstream "theirs" {"src" "x\n"})
     (is (= #{["main" :updated] ["development" :updated]} (set (statuses (git/update! (assoc r :layout :worktrees))))))))
+
+(deftest maintenance-runs-the-tasks-of-the-schedule
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})]
+    (doseq [layout [:plain :worktrees]]
+      (let [r (assoc (repository upstream layout) :dir (path "clones" (name layout)))]
+        (git/clone! r)
+        (is (= :done (:status (git/maintain! r "hourly"))))
+        (testing (str "the hourly commit-graph task ran in the " (name layout) " layout")
+          (is (fs/exists? (path "clones" (name layout) ".git" "objects" "info" "commit-graphs"))))))
+    (is (= :missing (:status (git/maintain! (assoc (repository upstream :plain) :dir (path "nowhere")) "daily"))))))
+
+(defn- branches [dir]
+  (set (str/split-lines (s/git dir "for-each-ref" "--format=%(refname:short)" "refs/heads"))))
+
+(deftest pruning-deletes-branches-origin-holds
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")
+        work (:work upstream)]
+    (git/clone! r)
+    (s/git dir "branch" "merged")
+    (s/git dir "branch" "development")
+    (s/git dir "switch" "--quiet" "-c" "wip")
+    (s/commit! dir "wip" {"wip" "x\n"})
+    (doseq [[branch file] [["landed" "landed"] ["abandoned" "abandoned"]]]
+      (s/git dir "switch" "--quiet" "-c" branch "main")
+      (s/commit! dir branch {file "x\n"})
+      (s/git dir "push" "--quiet" "--set-upstream" "origin" branch))
+    (s/git work "fetch" "--quiet" "origin")
+    (s/git work "merge" "--quiet" "--ff-only" "origin/landed")
+    (s/git work "push" "--quiet" "origin" "main" ":landed" ":abandoned")
+    (s/git dir "switch" "--quiet" "-c" "current" "main")
+    (s/git dir "fetch" "--quiet" "--prune" "origin")
+    (testing "a dry run deletes nothing"
+      (let [before (branches dir)
+            result (git/prune-branches! r true)]
+        (is (= #{"merged" "landed"} (set (:deleted result))))
+        (is (= before (branches dir)))))
+    (let [result (git/prune-branches! r false)]
+      (is (= #{"merged" "landed"} (set (:deleted result))))
+      (is (= [{:branch "abandoned" :message "its upstream is gone and it holds 1 commit origin/main lacks"}] (:kept result)))
+      (is (= #{"main" "development" "current" "wip" "abandoned"} (branches dir))))))
+
+(deftest pruning-keeps-the-branches-of-every-worktree
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :worktrees)
+        gd (path "clones" "app" ".git")]
+    (git/clone! r)
+    (s/git (path "clones" "app" "main") "worktree" "add" "--quiet" "-b" "feature" (path "clones" "app" "feature"))
+    (s/git (path "clones" "app" "main") "branch" "stale")
+    (is (= ["stale"] (:deleted (git/prune-branches! r false))))
+    (is (= #{"main" "development" "feature"} (branches gd)))))

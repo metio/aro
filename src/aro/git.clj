@@ -192,6 +192,62 @@
                                   :checkout checkout)))}))
     {:status :missing :message "not cloned"}))
 
+(def schedules #{"hourly" "daily" "weekly"})
+
+(defn maintain!
+  "Runs git's maintenance tasks for `schedule`, one of `schedules`, in the
+  clone of `repository`. The tasks are those of the incremental strategy,
+  because without a strategy a scheduled run has none. Returns
+  {:status :missing|:failed|:done :message}."
+  [{:keys [dir]} schedule]
+  (if (layout-on-disk dir)
+    (let [{:keys [exit err]} (git "--git-dir" (git-dir dir) "-c" "maintenance.strategy=incremental"
+                                  "maintenance" "run" (str "--schedule=" schedule) "--quiet")]
+      (if (zero? exit)
+        {:status :done :message (str schedule " maintenance done")}
+        {:status :failed :message (str schedule " maintenance failed: " (str/trim err))}))
+    {:status :missing :message "not cloned"}))
+
+(defn- checked-out [dir layout]
+  (set (if (= :plain layout)
+         (let [{:keys [exit out]} (git "-C" dir "symbolic-ref" "--quiet" "--short" "HEAD")]
+           (when (zero? exit) [(str/trim out)]))
+         (keep :branch (worktrees dir)))))
+
+(defn prune-branches!
+  "Deletes the local branches of the clone of `repository` whose commits the
+  default branch of origin holds, keeping the default branch, development
+  and every branch a checkout has checked out. A branch whose upstream is
+  gone but that holds commits origin lacks is kept and reported. With
+  `dry-run`, nothing is deleted. Returns {:status :missing|:failed|:done
+  :message :deleted [branch] :kept [{:branch :message}]}."
+  [{:keys [dir branch]} dry-run]
+  (if-let [layout (layout-on-disk dir)]
+    (let [gd (git-dir dir)
+          default branch
+          target (str "refs/remotes/origin/" default)
+          protected (into #{default development} (checked-out dir layout))]
+      (if-not (zero? (:exit (git "--git-dir" gd "rev-parse" "--verify" "--quiet" target)))
+        {:status :failed :message (str "origin/" default " does not exist")}
+        (let [local (for [line (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname:short) %(upstream:track)" "refs/heads"))
+                          :let [[name track] (str/split line #" " 2)]
+                          :when (not (protected name))]
+                      {:name name :gone (= "[gone]" track)})
+              merged? #(zero? (:exit (git "--git-dir" gd "merge-base" "--is-ancestor" (str "refs/heads/" (:name %)) target)))
+              {deleted true others false} (group-by (comp boolean merged?) local)]
+          (when-not dry-run
+            (doseq [{:keys [name]} deleted]
+              (git! "--git-dir" gd "branch" "--delete" "--force" name)))
+          {:status :done
+           :deleted (mapv :name deleted)
+           :kept (vec (for [{:keys [name gone]} others
+                            :when gone]
+                        (let [n (git! "--git-dir" gd "rev-list" "--count" (str target "..refs/heads/" name))]
+                          {:branch name
+                           :message (str "its upstream is gone and it holds " n (if (= "1" n) " commit" " commits")
+                                         " origin/" default " lacks")})))})))
+    {:status :missing :message "not cloned"}))
+
 (defn- move-children! [from to]
   (doseq [child (fs/list-dir from)]
     (fs/move child (fs/path to (fs/file-name child)))))
