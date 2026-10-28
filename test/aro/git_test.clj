@@ -238,7 +238,9 @@
         (git/clone! r)
         (is (= :done (:status (git/maintain! r "hourly"))))
         (testing (str "the hourly commit-graph task ran in the " (name layout) " layout")
-          (is (fs/exists? (path "clones" (name layout) ".git" "objects" "info" "commit-graphs"))))))
+          (is (fs/exists? (path "clones" (name layout) ".git" "objects" "info" "commit-graphs"))))
+        (testing (str "the hourly run fetches nothing in the " (name layout) " layout")
+          (is (= "" (s/git (:dir r) "for-each-ref" "refs/prefetch"))))))
     (is (= :missing (:status (git/maintain! (assoc (repository upstream :plain) :dir (path "nowhere")) "daily"))))))
 
 (defn- branches [dir]

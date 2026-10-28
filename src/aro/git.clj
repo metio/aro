@@ -243,12 +243,14 @@
 (defn maintain!
   "Runs git's maintenance tasks for `schedule`, one of `schedules`, in the
   clone of `repository`. The tasks are those of the incremental strategy,
-  because without a strategy a scheduled run has none. Returns
+  because without a strategy a scheduled run has none, minus prefetch:
+  `update!` does the fetching, and an hourly fetch of every clone would
+  multiply the traffic by the number of clones. Returns
   {:status :missing|:failed|:done :message}."
   [{:keys [dir]} schedule]
   (if (layout-on-disk dir)
     (let [{:keys [exit err]} (git "--git-dir" (git-dir dir) "-c" "maintenance.strategy=incremental"
-                                  "maintenance" "run" (str "--schedule=" schedule) "--quiet")]
+                                  "-c" "maintenance.prefetch.enabled=false" "maintenance" "run" (str "--schedule=" schedule) "--quiet")]
       (if (zero? exit)
         {:status :done :message (str schedule " maintenance done")}
         {:status :failed :message (str schedule " maintenance failed: " (str/trim err))}))
