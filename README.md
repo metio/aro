@@ -18,6 +18,7 @@ aro clone [REPO...] [--max N]               # clone what is missing, one at a ti
 aro update [REPO...] [--jobs N]             # fetch and update every clone
 aro maintain --schedule S [REPO...]         # run git's maintenance tasks for hourly, daily or weekly
 aro prune [REPO...] [--dry-run]             # delete local branches origin's default branch holds
+aro orphans [--delete]                      # list clones no repository names, remove those without local work
 aro layout REPO worktrees|plain [--keep B]  # switch a clone between the layouts
 ```
 
@@ -99,6 +100,10 @@ Each map in `:match` selects the repositories for which all its keys hold: `:nam
 The plain layout is an ordinary clone. The worktrees layout is a bare repository in `.git` with a worktree per branch next to it: the default branch tracking its upstream, and `development` started from it without an upstream.
 
 `aro layout REPO worktrees` moves the checkout as it is into a worktree named after its branch, with uncommitted changes, the index, untracked and ignored files included, and adds the default branch and `development` next to it. `aro layout REPO plain` keeps the worktree of the default branch, or of `--keep`, as the plain clone. The other worktrees are removed and their branches remain. A worktree to remove that holds uncommitted changes, untracked or ignored files refuses the switch before anything changes, and the error lists those files. Both directions refuse a clone with a merge or rebase in progress, and switching to worktrees refuses one with submodules. Set the repository's `:layout` in the config afterwards, so sessions and new clones follow.
+
+## Orphans
+
+`aro orphans` lists every clone below `:git-root` that is neither the clone of a configured repository nor inside a group's `:dirs`, such as clones of repositories that were archived, moved or deleted on their forge. Each line names what the clone holds only locally. `aro orphans --delete` removes the orphans holding nothing of that kind, along with the directories they leave empty, and keeps the rest with the reason. A clone counts as holding local work when a checkout has uncommitted changes or untracked files, when it has stash entries, when a branch or tag holds commits no remote-tracking branch holds, or when git cannot read it. Ignored files do not count, so build output and editor settings are removed with the clone.
 
 ## Updating
 

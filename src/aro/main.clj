@@ -8,6 +8,7 @@
             [aro.git :as git]
             [aro.inventory :as inventory]
             [aro.model :as model]
+            [aro.orphans :as orphans]
             [aro.sessions :as sessions]
             [aro.tunnel :as tunnel]
             [babashka.cli :as cli]
@@ -33,6 +34,8 @@ Commands:
                            Run git's maintenance tasks for the schedule in every clone
   prune [REPO...] [--dry-run] [--jobs N]
                            Delete local branches whose commits the default branch of origin holds
+  orphans [--delete]       List the clones below the git root that no repository names, and with --delete
+                           remove those without local work
   layout REPO worktrees|plain [--keep BRANCH]
                            Switch a clone between the worktrees and the plain layout
 
@@ -195,6 +198,23 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
 (defn- prune-all! [repositories {:keys [dry-run jobs]}]
   (run-all! repositories jobs #(git/prune-branches! % dry-run) #(report-prune %1 %2 dry-run)))
 
+(defn orphans!
+  "Prints the clones below the git root that no repository names, with what
+  each holds only locally, and with `delete` removes those holding nothing.
+  Returns whether every orphan is gone or was only listed."
+  [config repositories delete]
+  (reduce (fn [success dir]
+            (if delete
+              (let [{:keys [status reasons]} (orphans/remove! dir (:git-root config))]
+                (if (= :removed status)
+                  (do (ok "removed " dir) success)
+                  (do (skipped dir " kept: " (str/join "; " reasons)) false)))
+              (let [reasons (git/local-work dir)]
+                (println (str dir (when (seq reasons) (str "  (" (str/join "; " reasons) ")"))))
+                success)))
+          true
+          (orphans/orphans config repositories)))
+
 (defn- layout! [config [repo target] {:keys [keep]}]
   (let [[r] (model/find-repositories (repositories config) [repo])]
     (case target
@@ -215,6 +235,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
    :keep {:desc "The branch whose worktree becomes the plain clone"}
    :schedule {:desc "hourly, daily or weekly"}
    :dry-run {:coerce :boolean :desc "Report what would be deleted"}
+   :delete {:coerce :boolean :desc "Remove the orphans that hold no local work"}
    :help {:coerce :boolean :alias :h}})
 
 (defn parse
@@ -249,6 +270,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                         "update" (run-all! (model/find-repositories (repositories config) args) (:jobs opts) git/update! report-update)
                         "maintain" (maintain-all! (model/find-repositories (repositories config) args) opts)
                         "prune" (prune-all! (model/find-repositories (repositories config) args) opts)
+                        "orphans" (orphans! config (repositories config) (:delete opts))
                         "layout" (layout! config args opts)
                         (do (error "unknown command " command) (println usage) false))]
           (shutdown-agents)

@@ -110,6 +110,32 @@
       (configure-push! dir repository)
       :cloned)))
 
+(declare worktrees)
+
+(defn local-work
+  "What deleting the clone at `dir` would lose: uncommitted changes or
+  untracked files in a checkout, stash entries, and commits no remote-tracking
+  branch holds. A git call that fails counts as local work, so a clone git
+  cannot read is never taken for an empty one. Ignored files do not count."
+  [dir]
+  (let [run (fn [& args]
+              (let [{:keys [exit out err]} (apply git "-C" (str dir) args)]
+                (if (zero? exit) {:lines (vec (lines out))} {:failed (str "git " (first args) " fails: " (str/trim err))})))
+        checkouts (if (= :worktrees (layout-on-disk dir)) (map :path (worktrees dir)) [(str dir)])
+        dirty (for [checkout checkouts
+                    :let [{:keys [exit out err]} (git "-C" checkout "status" "--porcelain")]
+                    :when (or (not (zero? exit)) (seq (lines out)))]
+                (if (zero? exit)
+                  (str checkout " has uncommitted changes or untracked files")
+                  (str "git status fails in " checkout ": " (str/trim err))))
+        stash (run "stash" "list")
+        unpushed (run "rev-list" "--branches" "--tags" "--not" "--remotes")]
+    (cond-> (vec dirty)
+      (:failed stash) (conj (:failed stash))
+      (seq (:lines stash)) (conj (str (count (:lines stash)) " stash " (if (< 1 (count (:lines stash))) "entries" "entry")))
+      (:failed unpushed) (conj (:failed unpushed))
+      (seq (:lines unpushed)) (conj (str (count (:lines unpushed)) " commit" (when (< 1 (count (:lines unpushed))) "s") " on no remote-tracking branch")))))
+
 (defn- worktrees
   "The checkouts of the worktrees layout at `dir`: [{:path :branch}]."
   [dir]
