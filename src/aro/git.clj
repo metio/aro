@@ -128,7 +128,9 @@
                 (if (zero? exit)
                   (str checkout " has uncommitted changes or untracked files")
                   (str "git status fails in " checkout ": " (str/trim err))))
-        stash (run "stash" "list")
+        stash (if (seq (:lines (run "for-each-ref" "refs/stash")))
+                (run "reflog" "show" "--format=%H" "refs/stash")
+                {:lines []})
         unpushed (run "rev-list" "--branches" "--tags" "--not" "--remotes")]
     (cond-> (vec dirty)
       (:failed stash) (conj (:failed stash))

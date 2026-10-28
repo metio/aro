@@ -56,6 +56,16 @@
         (s/git dir "add" "README")
         (s/git dir "commit" "--quiet" "--message" "first")
         (is (= :kept (:status (orphans/remove! dir root))))))
+    (testing "a clean clone of the worktrees layout goes"
+      (let [r {:id "example.org:team/clean" :url (:url upstream) :dir (path "git" "c" "clean") :layout :worktrees :branch "main"}]
+        (git/clone! r)
+        (is (= {:status :removed} (orphans/remove! (:dir r) root)))))
+    (testing "a stash of the worktrees layout"
+      (let [r {:id "example.org:team/stashed" :url (:url upstream) :dir (path "git" "c" "stashed") :layout :worktrees :branch "main"}]
+        (git/clone! r)
+        (spit (path "git" "c" "stashed" "main" "README") "changed\n")
+        (s/git (path "git" "c" "stashed" "main") "stash" "--quiet")
+        (is (= ["1 stash entry"] (:reasons (orphans/remove! (:dir r) root))))))
     (testing "a changed worktree of the worktrees layout"
       (let [r {:id "example.org:team/app" :url (:url upstream) :dir (path "git" "b" "app") :layout :worktrees :branch "main"}]
         (git/clone! r)
