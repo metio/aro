@@ -183,6 +183,21 @@
     (is (thrown? Exception (git/to-plain! dir "main")))
     (is (= "work in progress\n" (slurp (path "clones" "app" "development" "README"))))))
 
+(deftest switching-to-plain-refuses-other-worktrees-with-ignored-files
+  (let [upstream (s/upstream! "app" {"README" "hello\n" ".gitignore" "secret\n"})
+        r (repository upstream :worktrees)
+        dir (path "clones" "app")]
+    (git/clone! r)
+    (spit (path "clones" "app" "main" "secret") "kept\n")
+    (spit (path "clones" "app" "development" "secret") "only copy\n")
+    (is (thrown-with-msg? Exception #"development: !! secret" (git/to-plain! dir "main")))
+    (is (= :worktrees (git/layout-on-disk dir)))
+    (is (= "only copy\n" (slurp (path "clones" "app" "development" "secret"))))
+    (testing "the kept worktree's ignored files stay with the plain clone"
+      (fs/delete (path "clones" "app" "development" "secret"))
+      (git/to-plain! dir "main")
+      (is (= "kept\n" (slurp (path "clones" "app" "secret")))))))
+
 (deftest switching-back-and-forth-round-trips
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
         r (repository upstream :plain)

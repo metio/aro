@@ -244,8 +244,10 @@
 
 (defn to-plain!
   "Turns the worktrees layout at `dir` into a plain clone of the worktree of
-  `keep`. The other worktrees are removed through git, which refuses one
-  with uncommitted changes or untracked files; their branches remain."
+  `keep`. The other worktrees are removed and their branches remain. A
+  worktree to remove that holds uncommitted changes, untracked or ignored
+  files refuses the switch before anything changes, since removing it would
+  delete them."
   [dir keep]
   (let [dir (str (fs/canonicalize dir))]
     (when-not (= :worktrees (layout-on-disk dir))
@@ -263,6 +265,12 @@
         (throw (ex-info (str dir " holds files outside its worktrees: " (str/join ", " (sort strays))) {:aro/problem :layout})))
       (when (in-progress? (:path kept))
         (throw (ex-info (str (:path kept) " has a merge or rebase in progress") {:aro/problem :layout})))
+      (when-let [held (seq (for [{:keys [path]} others
+                                 file (concat (remove str/blank? (str/split-lines (git! "-C" path "status" "--porcelain" "--untracked-files=all")))
+                                              (map #(str "!! " %) (remove str/blank? (str/split-lines (git! "-C" path "ls-files" "--others" "--ignored" "--exclude-standard" "--directory")))))]
+                             (str path ": " file)))]
+        (throw (ex-info (str dir " has worktrees whose files removing them would delete:\n  " (str/join "\n  " held))
+                        {:aro/problem :layout})))
       (doseq [{:keys [path]} others]
         (git! "--git-dir" gd "worktree" "remove" path))
       (let [checkout (:path kept)
