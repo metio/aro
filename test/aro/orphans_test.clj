@@ -43,6 +43,20 @@
         (spit (path "git" "a" "ahead" "README") "changed\n")
         (s/git dir "commit" "--quiet" "--all" "--message" "mine")
         (is (= ["1 commit on no remote-tracking branch"] (:reasons (orphans/remove! dir root))))))
+    (testing "commits only a detached HEAD holds"
+      (let [dir (clone! upstream "a" "detached")]
+        (s/git dir "checkout" "--quiet" "--detach")
+        (spit (path "git" "a" "detached" "README") "changed\n")
+        (s/git dir "commit" "--quiet" "--all" "--message" "mine")
+        (is (= :kept (:status (orphans/remove! dir root))))))
+    (testing "commits only a detached worktree of the worktrees layout holds"
+      (let [r {:id "example.org:team/detached" :url (:url upstream) :dir (path "git" "d" "detached") :layout :worktrees :branch "main"}
+            development (path "git" "d" "detached" "development")]
+        (git/clone! r)
+        (s/git development "checkout" "--quiet" "--detach")
+        (spit (path "git" "d" "detached" "development" "README") "changed\n")
+        (s/git development "commit" "--quiet" "--all" "--message" "mine")
+        (is (= :kept (:status (orphans/remove! (:dir r) root))))))
     (testing "stash entries"
       (let [dir (clone! upstream "a" "stashed")]
         (spit (path "git" "a" "stashed" "README") "changed\n")

@@ -103,7 +103,7 @@ The plain layout is an ordinary clone. The worktrees layout is a bare repository
 
 ## Orphans
 
-`aro orphans` lists every clone below `:git-root` that is neither the clone of a configured repository nor inside a group's `:dirs`, such as clones of repositories that were archived, moved or deleted on their forge. Each line names what the clone holds only locally. `aro orphans --delete` removes the orphans holding nothing of that kind, along with the directories they leave empty, and keeps the rest with the reason. A clone counts as holding local work when a checkout has uncommitted changes or untracked files, when it has stash entries, when a branch or tag holds commits no remote-tracking branch holds, or when git cannot read it. Ignored files do not count, so build output and editor settings are removed with the clone.
+`aro orphans` lists every clone below `:git-root` that is neither the clone of a configured repository nor inside a group's `:dirs`, such as clones of repositories that were archived, moved or deleted on their forge. Each line names what the clone holds only locally. `aro orphans --delete` removes the orphans holding nothing of that kind, along with the directories they leave empty, and keeps the rest with the reason. A clone counts as holding local work when a checkout has uncommitted changes or untracked files, when it has stash entries, when a branch, tag, note or detached HEAD reaches commits no remote-tracking branch holds, or when git cannot read it. Ignored files do not count, so build output and editor settings are removed with the clone.
 
 ## Updating
 

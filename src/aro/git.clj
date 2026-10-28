@@ -115,7 +115,8 @@
 (defn local-work
   "What deleting the clone at `dir` would lose: uncommitted changes or
   untracked files in a checkout, stash entries, and commits no remote-tracking
-  branch holds. A git call that fails counts as local work, so a clone git
+  branch holds, whether a branch, a tag, a note or a detached HEAD reaches
+  them. A git call that fails counts as local work, so a clone git
   cannot read is never taken for an empty one. Ignored files do not count."
   [dir]
   (let [run (fn [& args]
@@ -131,7 +132,7 @@
         stash (if (seq (:lines (run "for-each-ref" "refs/stash")))
                 (run "reflog" "show" "--format=%H" "refs/stash")
                 {:lines []})
-        unpushed (run "rev-list" "--branches" "--tags" "--not" "--remotes")]
+        unpushed (run "rev-list" "--exclude=refs/prefetch/*" "--exclude=refs/stash" "--all" "--not" "--remotes")]
     (cond-> (vec dirty)
       (:failed stash) (conj (:failed stash))
       (seq (:lines stash)) (conj (str (count (:lines stash)) " stash " (if (< 1 (count (:lines stash))) "entries" "entry")))
