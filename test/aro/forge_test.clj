@@ -32,6 +32,21 @@
     (is (= [["https://api.github.com/users/sebhoss/repos?type=owner&per_page=100&page=1" {"Accept" "application/vnd.github+json"}]]
            @calls))))
 
+(deftest a-token-lists-the-private-repositories-of-its-user
+  (let [calls (atom [])
+        pages {"https://api.github.com/user/repos?affiliation=owner&per_page=100&page=1"
+               [{:name "zoo" :full_name "sebhoss/zoo" :default_branch "main" :private true :topics []}
+                {:name "gone" :full_name "sebhoss/gone" :default_branch "main" :disabled true :topics []}
+                {:name "other" :full_name "someone/other" :default_branch "main" :topics []}]}
+        records (forge/list-repositories {:id "me" :github {:user "SebHoss"}} (fake calls pages) "t")]
+    (is (= ["sebhoss/zoo"] (map :path records)))
+    (is (= "Bearer t" (get-in @calls [0 1 "Authorization"]))))
+  (testing "a Forgejo user with a token lists the token's repositories too"
+    (let [calls (atom [])]
+      (forge/list-repositories {:id "cb" :forgejo {:url "https://codeberg.org" :user "sebhoss"}} (fake calls {}) "t")
+      (is (= "https://codeberg.org/api/v1/user/repos?limit=50&page=1" (ffirst @calls)))
+      (is (= "token t" (get-in @calls [0 1 "Authorization"]))))))
+
 (deftest gitlab-groups-include-subgroups
   (let [calls (atom [])
         pages {"https://git.example.org/api/v4/groups/infra.run/projects?include_subgroups=true&order_by=path&sort=asc&per_page=100&page=1"

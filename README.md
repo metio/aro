@@ -50,10 +50,10 @@ Comment lines at the top of the inventory, such as a license header, survive a r
 | Key | Meaning |
 | --- | --- |
 | `:github`, `:gitlab`, `:forgejo` | The forge and the organization, user or group to list. GitLab groups include their subgroups. |
-| `:token-command` | A command printing a token on its first line, for private repositories. |
+| `:token-command` | A command printing a token on its first line, for private repositories. A GitHub or Forgejo `:user` with a token lists the repositories the token's account owns, private ones included; a token of another account lists none. |
 | `:tunnel` | An SSH port forward for a forge API that only listens on its own host. |
 | `:host` | The host recorded for the repositories, when the URL differs from the host used for cloning. |
-| `:archived`, `:forks` | `true` keeps archived repositories or forks, which are left out otherwise. |
+| `:archived`, `:forks` | `true` keeps archived repositories or forks, which are left out otherwise. Disabled GitHub repositories, which cannot be cloned, are always left out. |
 | `:layout` | The layout of the source's clones, overriding the top-level `:layout` (default `:plain`). |
 | `:root` | The namespace session files are relative to. Defaults to the organization, user or group. |
 | `:session-dir` | The directory below the airmux directory for the source's sessions. Defaults to the id. |

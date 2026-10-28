@@ -66,30 +66,44 @@
 (defn- base-url [url]
   (str/replace url #"/+$" ""))
 
+(defn- owned-by
+  "The records of `records` in the namespace of `user`. The listing of the
+  token's own repositories names nobody, so a token of another account
+  yields none instead of that account's repositories."
+  [user records]
+  (filterv #(= (str/lower-case user) (str/lower-case (:namespace %))) records))
+
 (defn list-repositories
   "The repository records of `source`. `get-json` takes a URL and the request
   headers and returns the parsed JSON body. A source's :host replaces the host
-  of its URL in the records, for a forge reached through another address."
+  of its URL in the records, for a forge reached through another address.
+  A GitHub or Forgejo user with a token lists the repositories the token's
+  account owns, private ones included; without one, only the public ones.
+  Disabled repositories cannot be cloned and are left out."
   [{:keys [github gitlab forgejo host] :as source} get-json token]
   (cond
     github
     (let [headers (cond-> {"Accept" "application/vnd.github+json"}
                     token (assoc "Authorization" (str "Bearer " token)))
           url (base-url (:url github "https://api.github.com"))
-          base (if (:org github)
-                 (str url "/orgs/" (encode (:org github)) "/repos?type=all")
-                 (str url "/users/" (encode (:user github)) "/repos?type=owner"))]
-      (mapv #(github-record (or host "github.com") %)
-            (pages #(get-json % headers) 100 #(str base "&per_page=" %2 "&page=" %1))))
+          base (cond
+                 (:org github) (str url "/orgs/" (encode (:org github)) "/repos?type=all")
+                 token (str url "/user/repos?affiliation=owner")
+                 :else (str url "/users/" (encode (:user github)) "/repos?type=owner"))]
+      (cond->> (mapv #(github-record (or host "github.com") %)
+                     (remove :disabled (pages #(get-json % headers) 100 #(str base "&per_page=" %2 "&page=" %1))))
+        (and token (not (:org github))) (owned-by (:user github))))
 
     forgejo
     (let [headers (cond-> {} token (assoc "Authorization" (str "token " token)))
           url (base-url (:url forgejo))
-          base (if (:org forgejo)
-                 (str url "/api/v1/orgs/" (encode (:org forgejo)) "/repos?")
-                 (str url "/api/v1/users/" (encode (:user forgejo)) "/repos?"))]
-      (mapv #(github-record (or host (host-of url)) %)
-            (pages #(get-json % headers) 50 #(str base "limit=" %2 "&page=" %1))))
+          base (cond
+                 (:org forgejo) (str url "/api/v1/orgs/" (encode (:org forgejo)) "/repos?")
+                 token (str url "/api/v1/user/repos?")
+                 :else (str url "/api/v1/users/" (encode (:user forgejo)) "/repos?"))]
+      (cond->> (mapv #(github-record (or host (host-of url)) %)
+                     (pages #(get-json % headers) 50 #(str base "limit=" %2 "&page=" %1)))
+        (and token (not (:org forgejo))) (owned-by (:user forgejo))))
 
     gitlab
     (let [headers (cond-> {} token (assoc "PRIVATE-TOKEN" token))
