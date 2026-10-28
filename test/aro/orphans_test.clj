@@ -25,6 +25,15 @@
     (fs/create-dirs (path "git" "example.org" "empty"))
     (is (= [orphan] (orphans/orphans config [{:dir managed}])))))
 
+(deftest orphans-skip-files-and-links-in-the-git-root
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        outside (path "outside")
+        _ (s/git s/*root* "clone" "--quiet" (:url upstream) outside)
+        orphan (clone! upstream "example.org" "old" "app")]
+    (spit (path "git" "README") "notes\n")
+    (fs/create-sym-link (path "git" "link") outside)
+    (is (= [orphan] (orphans/orphans {:git-root (path "git")} [])))))
+
 (deftest removing-keeps-clones-with-local-work
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
         root (path "git")]

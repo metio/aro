@@ -16,14 +16,15 @@
   "Every clone below `root`, without descending into a clone or following
   symbolic links."
   [root]
-  (letfn [(walk [dir]
+  (letfn [(subdirs [dir]
+            (->> (fs/list-dir dir)
+                 (filter #(fs/directory? % {:nofollow-links true}))
+                 (sort-by str)))
+          (walk [dir]
             (if (clone? dir)
               [(str dir)]
-              (->> (fs/list-dir dir)
-                   (filter #(fs/directory? % {:nofollow-links true}))
-                   (sort-by str)
-                   (mapcat walk))))]
-    (if (fs/directory? root) (vec (mapcat walk (sort-by str (fs/list-dir root)))) [])))
+              (mapcat walk (subdirs dir))))]
+    (if (fs/directory? root) (vec (mapcat walk (subdirs root))) [])))
 
 (defn- inside? [dir known]
   (or (= dir known) (str/starts-with? dir (str known "/"))))
