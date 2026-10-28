@@ -82,12 +82,13 @@ A group collects repositories into a ttt workspace and, with `:session`, an airm
            :match [{:namespace "team/helm-charts"} {:topic "helm"}]
            :include ["git.example.org:team/tools/chart-tests"]
            :exclude ["git.example.org:team/helm-charts/attic"]
+           :dirs ["~/notes/helm"]
            :ttt "team-helm-charts.ttt"
            :session {:file "work/helm-charts/all.yml" :session_name "team helm charts"}}]
  :sessions {"metio/jaas.yml" {:session_name "jaas" :windows [...]}}}
 ```
 
-Each map in `:match` selects the repositories for which all its keys hold: `:namespace`, `:namespace-prefix`, `:topic`, `:host` or `:source`. `:sessions` are written as they are, for sessions spanning several repositories.
+Each map in `:match` selects the repositories for which all its keys hold: `:namespace`, `:namespace-prefix`, `:topic`, `:host` or `:source`. `:dirs` adds folders that are no repository to the workspace, resolved like a repository's `:dir`. `:sessions` are written as they are, for sessions spanning several repositories.
 
 ## Layouts
 

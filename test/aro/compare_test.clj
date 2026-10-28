@@ -63,7 +63,10 @@
     (let [result (run (config) {})]
       (is (= {"all" {:include ["github.com:metio/old"] :exclude ["github.com:metio/aro" "github.com:metio/new"]}} (:groups result)))
       (is (= {:include true} (get-in result [:repositories "github.com:metio/old"])))
-      (is (some #(= [:unknown (str (path "ttt" "all.ttt") " lists /elsewhere, which is no repository")] %) (:report result))))))
+      (is (some #(= [:unknown (str (path "ttt" "all.ttt") " lists /elsewhere, which is no repository")] %) (:report result))))
+    (testing "a folder the group lists in :dirs is known"
+      (let [result (run (assoc (config) :groups [{:id "all" :match [{:namespace "metio"}] :dirs ["/elsewhere"]}]) {})]
+        (is (not-any? #(= :unknown (first %)) (:report result)))))))
 
 (deftest the-toml-subset-parses
   (let [file (path "repos.toml")]

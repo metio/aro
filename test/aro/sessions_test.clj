@@ -56,6 +56,17 @@
     (is (= {"folders" [{"path" (str home "/git/github.com/metio/a")} {"path" (str home "/git/github.com/metio/b")}]}
            (get-in plan [:ttt (path "ttt" "charts.ttt")])))))
 
+(deftest group-dirs-add-folders-to-the-workspace
+  (let [config {:ttt-dir (path "ttt") :git-root (path "git")
+                :groups [{:id "local" :match [{:namespace "metio"}] :dirs ["github.com/metio/scratch" "~/notes" "/opt/x"]}
+                         {:id "only-dirs" :match [] :dirs ["/opt/x"]}]}
+        plan (sessions/plan config [(repository "a" :plain)])]
+    (is (= {"folders" [{"path" (str home "/git/github.com/metio/a")} {"path" (path "git" "github.com/metio/scratch")}
+                       {"path" (str home "/notes")} {"path" "/opt/x"}]}
+           (get-in plan [:ttt (path "ttt" "local.ttt")])))
+    (testing "a group without members still gets a workspace for its dirs"
+      (is (= {"folders" [{"path" "/opt/x"}]} (get-in plan [:ttt (path "ttt" "only-dirs.ttt")]))))))
+
 (deftest writing-replaces-what-the-last-run-wrote
   (let [airmux (path "airmux")
         first-plan {:airmux {"metio/a.yml" {"session_name" "a"} "metio/b.yml" {"session_name" "b"}} :ttt {(path "ttt" "x.ttt") {"folders" []}}}]

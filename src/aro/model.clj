@@ -46,7 +46,7 @@
     (str/starts-with? namespace (str root "/")) (subs namespace (inc (count root)))
     :else namespace))
 
-(defn- expand-dir [config dir]
+(defn expand-dir [config dir]
   (cond
     (str/blank? dir) nil
     (str/starts-with? dir "~") (str/replace-first dir #"^~" (System/getProperty "user.home"))
@@ -117,6 +117,12 @@
     (filterv #(and (not (exclude (:id %)))
                    (or (include (:id %)) (some (partial matches? %) (:match group))))
              repositories)))
+
+(defn group-dirs
+  "The directories `group` lists in :dirs, for folders of its workspace that
+  are no repository, resolved like a repository's :dir."
+  [config group]
+  (keep (partial expand-dir config) (:dirs group)))
 
 (defn find-repositories
   "The repositories `args` name, by id or by a directory inside their clone;

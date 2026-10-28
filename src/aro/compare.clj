@@ -153,8 +153,9 @@
                     ttt-path (sessions/ttt-file config group)
                     theirs (when (fs/exists? ttt-path) (normalized-folders (json/parse-string (slurp ttt-path))))
                     mine (set (map #(canonical (:dir %)) members))
+                    listed (set (keep canonical (model/group-dirs config group)))
                     include (when theirs (sort (keep #(:id (by-dir %)) (remove mine theirs))))
-                    unknown (when theirs (sort (remove #(or (mine %) (by-dir %)) theirs)))
+                    unknown (when theirs (sort (remove #(or (mine %) (listed %) (by-dir %)) theirs)))
                     exclude (when theirs (sort (map :id (filter #(not (theirs (canonical (:dir %)))) members))))
                     session-file (get-in group [:session :file] (str (:id group) ".yml"))
                     differences (when-let [session (and (:session group) (get existing session-file))]

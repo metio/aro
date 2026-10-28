@@ -61,8 +61,8 @@
 (defn ttt-file [config group]
   (str (fs/path (:ttt-dir config) (or (:ttt group) (str (:id group) ".ttt")))))
 
-(defn ttt-workspace [members]
-  {"folders" (mapv (fn [{:keys [dir]}] {"path" dir}) members)})
+(defn ttt-workspace [members dirs]
+  {"folders" (mapv (fn [dir] {"path" dir}) (concat (map :dir members) dirs))})
 
 (defn group-session [config group members]
   (when-let [session (:session group)]
@@ -84,8 +84,10 @@
                                    :when session]
                                [(get-in group [:session :file] (str (:id group) ".yml")) session]))
                     (update-vals (:sessions config) #(ordered (walk/stringify-keys %))))
-     :ttt (into {} (for [[group members] groups :when (seq members)]
-                     [(ttt-file config group) (ttt-workspace members)]))}))
+     :ttt (into {} (for [[group members] groups
+                         :let [dirs (model/group-dirs config group)]
+                         :when (or (seq members) (seq dirs))]
+                     [(ttt-file config group) (ttt-workspace members dirs)]))}))
 
 (defn render-session [session]
   (yaml/generate-string session :dumper-options {:flow-style :block :indent 4 :indicator-indent 2}))
