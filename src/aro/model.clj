@@ -124,6 +124,18 @@
          (sort-by :id)
          vec)))
 
+(def matcher-keys #{:namespace :namespace-prefix :topic :host :source})
+
+(defn- check-matcher!
+  "Throws for a :match map of `group` that is empty, which would match every
+  repository, or names a key no repository has, which would match none."
+  [group matcher]
+  (when (empty? matcher)
+    (throw (ex-info (str "the group " (:id group) " has an empty :match map") {:aro/problem :invalid-config})))
+  (when-let [unknown (seq (remove matcher-keys (keys matcher)))]
+    (throw (ex-info (str "the group " (:id group) " matches on " (str/join ", " unknown) ", which is none of " (str/join ", " (sort matcher-keys)))
+                    {:aro/problem :invalid-config}))))
+
 (defn- matches? [repository matcher]
   (every? (fn [[k v]]
             (case k
@@ -139,6 +151,7 @@
   "The repositories of `group`: those matching any of its :match maps, every
   key of a map holding, plus its :include ids, minus its :exclude ids."
   [group repositories]
+  (run! (partial check-matcher! group) (:match group))
   (let [include (set (map canonical-id (:include group)))
         exclude (set (map canonical-id (:exclude group)))]
     (filterv #(and (not (exclude (:id %)))

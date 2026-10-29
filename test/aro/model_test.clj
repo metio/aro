@@ -104,3 +104,8 @@
     (is (= ["https://git.example.org/infra.run/tools/fahrplan.git"] (:mirrors (by-id "github.com:sebhoss/dotfiles"))))
     (is (= ["github.com:metio/aro"]
            (map :id (model/group-members {:match [{:host "github.com"}] :exclude ["git@github.com:sebhoss/dotfiles.git"]} rs))))))
+
+(deftest group-matchers-with-unknown-keys-or-none-are-refused
+  (let [rs (model/repositories config inventory)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #":namespace_prefix" (model/group-members {:id "g" :match [{:namespace_prefix "infra.run"}]} rs)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"empty" (model/group-members {:id "g" :match [{}]} rs)))))
