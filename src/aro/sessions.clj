@@ -96,6 +96,11 @@
   (let [groups (for [group (:groups config)]
                  [group (model/group-members group repositories) (model/group-dirs config group)])]
     {:airmux (merge (let [rs (remove #(false? (:session %)) repositories)]
+                      (when-let [shared (seq (for [[file same] (group-by :session-file rs) :when (< 1 (count same))]
+                                               (str file " (" (str/join ", " (sort (map :id same))) ")")))]
+                        (throw (ex-info (str "several repositories have the same session file, set :session-file or :session false for all but one: "
+                                             (str/join "; " shared))
+                                        {:aro/problem :invalid-config})))
                       (zipmap (map :session-file rs) (distinct-names rs (map repository-session rs))))
                     (into {} (for [[group members dirs] groups
                                    :let [session (group-session config group members dirs)]

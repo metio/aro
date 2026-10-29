@@ -66,6 +66,12 @@
     (is (= ["dashboards-grafana" "charts-grafana" "other" "mine"]
            (map #(get-in airmux [% "session_name"]) ["a.yml" "b.yml" "c.yml" "d.yml"])))))
 
+(deftest two-repositories-with-one-session-file-are-refused
+  (let [a (repository "dotfiles" :plain :id "github.com:sebhoss/dotfiles" :session-file "sebhoss/dotfiles.yml")
+        b (repository "dotfiles" :plain :id "codeberg.org:sebhoss/dotfiles" :session-file "sebhoss/dotfiles.yml")]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"codeberg.org:sebhoss/dotfiles.*github.com:sebhoss/dotfiles"
+                          (sessions/plan {} [a b])))))
+
 (deftest a-group-without-members-gets-no-session
   (let [config {:ttt-dir (path "ttt") :groups [{:id "g" :session {} :match [{:host "nowhere"}]}]}]
     (is (= {:airmux {"metio/aro.yml" (sessions/repository-session (repository "aro" :plain))} :ttt {}}
