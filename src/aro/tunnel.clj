@@ -36,27 +36,32 @@
 
 (defn open
   "Starts the forward of `tunnel` and waits until its port accepts
-  connections. Returns {:process :port}."
-  [tunnel & {:keys [timeout-ms] :or {timeout-ms 15000}}]
+  connections while ssh still runs `settle-ms` later. Another process may
+  bind the free port before ssh does; ssh then exits on the failed forward
+  right after authenticating, and the port must not count as the tunnel.
+  Returns {:process :port}."
+  [tunnel & {:keys [timeout-ms settle-ms] :or {timeout-ms 15000 settle-ms 1000}}]
   (let [port (free-port)
         proc (apply process/process {:out :string :err :string} (ssh-command tunnel port))
         deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop []
-      (cond
-        (listening? port)
-        {:process proc :port port}
+    (loop [ready-since nil]
+      (let [now (System/currentTimeMillis)]
+        (cond
+          (not (.isAlive ^Process (:proc proc)))
+          (throw (ex-info (str "ssh " (:ssh tunnel) " ended before forwarding " (:target tunnel) ": " @(:err proc))
+                          {:aro/problem :tunnel}))
 
-        (not (.isAlive ^Process (:proc proc)))
-        (throw (ex-info (str "ssh " (:ssh tunnel) " ended before forwarding " (:target tunnel) ": " @(:err proc))
-                        {:aro/problem :tunnel}))
+          (and ready-since (>= (- now ready-since) settle-ms))
+          {:process proc :port port}
 
-        (> (System/currentTimeMillis) deadline)
-        (do (process/destroy-tree proc)
-            (throw (ex-info (str "ssh " (:ssh tunnel) " did not forward " (:target tunnel) " within " (quot timeout-ms 1000) "s")
-                            {:aro/problem :tunnel})))
+          (> now deadline)
+          (do (process/destroy-tree proc)
+              (throw (ex-info (str "ssh " (:ssh tunnel) " did not forward " (:target tunnel) " within " (quot timeout-ms 1000) "s")
+                              {:aro/problem :tunnel})))
 
-        :else
-        (do (Thread/sleep 100) (recur))))))
+          :else
+          (do (Thread/sleep 100)
+              (recur (or ready-since (when (listening? port) now)))))))))
 
 (defn close [{:keys [process]}]
   (process/destroy-tree process))

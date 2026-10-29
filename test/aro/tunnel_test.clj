@@ -3,7 +3,8 @@
 
 (ns aro.tunnel-test
   (:require [aro.tunnel :as tunnel]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]])
+  (:import (java.net ServerSocket)))
 
 (deftest the-forward-binds-loopback-only
   (is (= ["ssh" "-N" "-o" "ExitOnForwardFailure=yes" "-o" "BatchMode=yes" "-p" "2222"
@@ -22,3 +23,10 @@
   (is (thrown-with-msg? Exception #"ended before forwarding"
                         (with-redefs [tunnel/ssh-command (fn [_ _] ["sh" "-c" "echo refused >&2; exit 255"])]
                           (tunnel/open {:ssh "nowhere" :target "localhost:1"})))))
+
+(deftest a-port-another-process-holds-fails-the-tunnel
+  (with-open [other (ServerSocket. 0)]
+    (is (thrown-with-msg? Exception #"ended before forwarding"
+                          (with-redefs [tunnel/free-port (constantly (.getLocalPort other))
+                                        tunnel/ssh-command (fn [_ _] ["sh" "-c" "sleep 0.5; echo 'bind: Address already in use' >&2; exit 255"])]
+                            (tunnel/open {:ssh "nowhere" :target "localhost:1"}))))))
