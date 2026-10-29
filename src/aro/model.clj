@@ -13,13 +13,16 @@
 
 (defn parse-id
   "{:host :path} of an id like github.com:metio/aro, accepting the
-  git@ and https:// spellings and a trailing .git."
+  git@ and https:// spellings, a port in a URL with a scheme and a trailing
+  .git or slash."
   [s]
-  (let [s (-> s
-              (str/replace #"^(https?|ssh)://" "")
-              (str/replace #"^[^@/:]+@" "")
-              (str/replace #"\.git$" "")
-              (str/replace #"/+$" ""))
+  (let [url? (re-find #"^(https?|ssh)://" s)
+        s (cond-> (-> s
+                      (str/replace #"^(https?|ssh)://" "")
+                      (str/replace #"^[^@/:]+@" "")
+                      (str/replace #"/+$" "")
+                      (str/replace #"\.git$" ""))
+            url? (str/replace #"^([^/:]+):\d+/" "$1/"))
         [_ host path] (or (re-matches #"([^:/]+)[:/](.+)" s)
                           (throw (ex-info (str s " names no host:path") {:aro/problem :invalid-id})))]
     {:host host :path path}))

@@ -71,6 +71,12 @@
   (doseq [s ["github.com:metio/aro" "git@github.com:metio/aro.git" "https://github.com/metio/aro" "ssh://git@github.com/metio/aro.git"]]
     (is (= {:host "github.com" :path "metio/aro"} (model/parse-id s)) s)))
 
+(deftest ids-parse-ports-and-trailing-slashes
+  (is (= {:host "github.com" :path "metio/aro"} (model/parse-id "https://github.com/metio/aro.git/")))
+  (is (= {:host "git.example.org" :path "infra.run/x"} (model/parse-id "ssh://git@git.example.org:2222/infra.run/x.git")))
+  (is (= {:host "git.example.org" :path "infra.run/x"} (model/parse-id "https://git.example.org:8443/infra.run/x")))
+  (is (= {:host "github.com" :path "metio/aro"} (model/parse-id "github.com:metio/aro"))))
+
 (deftest repositories-are-found-by-id
   (let [rs (model/repositories config inventory)]
     (is (= ["github.com:metio/aro"] (map :id (model/find-repositories rs ["https://github.com/metio/aro"]))))
