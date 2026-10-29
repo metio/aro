@@ -122,3 +122,16 @@
   (is (= "abc" (forge/token {:id "x" :token-command ["printf" "abc\\nrest"]})))
   (is (nil? (forge/token {:id "x"})))
   (is (thrown-with-msg? Exception #"printed no token" (forge/token {:id "x" :token-command ["false"]}))))
+
+(deftest projects-without-commits-are-left-out
+  (let [gitlab {"https://gitlab.com/api/v4/projects?membership=true&order_by=path&sort=asc&per_page=100&page=1"
+                [{:path "kept" :path_with_namespace "g/kept" :namespace {:full_path "g"} :topics [] :empty_repo false}
+                 {:path "empty" :path_with_namespace "g/empty" :namespace {:full_path "g"} :topics [] :empty_repo true}
+                 {:path "off" :path_with_namespace "g/off" :namespace {:full_path "g"} :topics [] :repository_access_level "disabled"}]}
+        forgejo {"https://codeberg.org/api/v1/orgs/o/repos?limit=50&page=1"
+                 [{:name "kept" :full_name "o/kept" :default_branch "main" :topics []}
+                  {:name "empty" :full_name "o/empty" :default_branch "main" :topics [] :empty true}]}]
+    (is (= ["g/kept"] (map :path (forge/list-repositories {:id "gl" :gitlab {:url "https://gitlab.com" :membership true}}
+                                                          (fake (atom []) gitlab) "t"))))
+    (is (= ["o/kept"] (map :path (forge/list-repositories {:id "cb" :forgejo {:url "https://codeberg.org" :org "o"}}
+                                                          (fake (atom []) forgejo) nil))))))

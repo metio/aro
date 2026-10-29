@@ -87,7 +87,9 @@
   A GitHub, Forgejo or GitLab user with a token lists the repositories the
   token's account owns, private ones included; without one, only the public
   ones.
-  Disabled repositories cannot be cloned and are left out."
+  Disabled repositories, and those without commits, cannot be cloned and
+  are left out; a later fetch lists them once they have some. GitLab only
+  reports an empty repository to a token."
   [source get-json token]
   (loop [[record & more :as records] (listed-repositories source get-json token) seen #{} kept []]
     (cond
@@ -118,7 +120,7 @@
                  token (str url "/api/v1/user/repos?")
                  :else (str url "/api/v1/users/" (encode (:user forgejo)) "/repos?"))]
       (cond->> (mapv #(github-record (or host (host-of url)) %)
-                     (pages #(get-json % headers) 50 #(str base "limit=" %2 "&page=" %1)))
+                     (remove :empty (pages #(get-json % headers) 50 #(str base "limit=" %2 "&page=" %1))))
         (and token (not (:org forgejo))) (owned-by (:user forgejo))))
 
     gitlab
@@ -133,7 +135,8 @@
                  token (str url "/api/v4/projects?owned=true&order_by=path&sort=asc")
                  :else (str url "/api/v4/users/" (encode (:user gitlab)) "/projects?order_by=path&sort=asc"))]
       (cond->> (mapv #(gitlab-record (or host (host-of url)) %)
-                     (pages #(get-json % headers) 100 #(str base "&per_page=" %2 "&page=" %1)))
+                     (remove #(or (:empty_repo %) (= "disabled" (:repository_access_level %)))
+                             (pages #(get-json % headers) 100 #(str base "&per_page=" %2 "&page=" %1))))
         (and token (:user gitlab)) (owned-by (:user gitlab))))
 
     :else
