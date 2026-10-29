@@ -96,6 +96,23 @@
     (is (= "edited\n" (slurp (path "clones" "app" "README"))))
     (is (= "initial" (head-message (path "clones" "app"))))))
 
+(deftest updating-keeps-ignored-files-the-update-would-overwrite
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")]
+    (git/clone! r)
+    (spit (path "clones" "app" ".git" "info" "exclude") ".env\n")
+    (spit (path "clones" "app" ".env") "secret\n")
+    (s/push! upstream "second" {".env" "upstream\n"})
+    (testing "a fast-forward"
+      (is (= [["app" :skipped]] (statuses (git/update! r))))
+      (is (= "secret\n" (slurp (path "clones" "app" ".env")))))
+    (testing "a rebase of own commits"
+      (spit (path "clones" "app" "README") "mine\n")
+      (s/git dir "commit" "--quiet" "--all" "--message" "mine")
+      (is (= [["app" :skipped]] (statuses (git/update! r))))
+      (is (= "secret\n" (slurp (path "clones" "app" ".env")))))))
+
 (deftest updating-rebases-own-commits-and-keeps-local-changes
   (let [upstream (s/upstream! "app" {"README" "hello\n" "src" "one\n" "notes" "a\n"})
         r (repository upstream :plain)

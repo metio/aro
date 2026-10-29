@@ -111,6 +111,7 @@ The plain layout is an ordinary clone. The worktrees layout is a bare repository
 
 - A branch without commits of its own is fast-forwarded. Git refuses when uncommitted changes touch a file the update changes, and the branch is left as it is.
 - A branch with commits of its own is rebased, with uncommitted changes stashed around the rebase. When those changes touch a file the update changes, or the rebase conflicts, the branch is left as it was.
+- An update that starts tracking a file the clone holds as an ignored file, such as a local `.env`, is skipped, since it would overwrite that file.
 - A detached HEAD, a merge or rebase in progress, a branch without upstream, and a branch whose upstream is gone are skipped.
 
 Skipped branches print `[SKIP]` with the reason. A failed fetch prints `[ERROR]` and makes the command exit non-zero, which suits a systemd timer with `OnFailure=`. Git runs with `GIT_TERMINAL_PROMPT=0` and, unless `GIT_SSH_COMMAND` is set, `ssh -o BatchMode=yes`, so a run without a terminal fails instead of waiting for input.

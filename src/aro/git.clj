@@ -187,6 +187,16 @@
        (remove str/blank?)
        set))
 
+(defn- ignored-in-the-way
+  "The ignored files of `checkout` that `target` starts tracking, which a
+  fast-forward or rebase onto it would overwrite."
+  [checkout target]
+  (let [incoming (lines (git! "-C" checkout "diff" "--name-only" "--no-renames" (str "HEAD..." target)))]
+    (when (seq incoming)
+      (->> (str/split (:out (apply git "-C" checkout "ls-files" "--others" "--ignored" "--exclude-standard" "-z" "--" incoming)) #"\u0000")
+           (remove str/blank?)
+           sort))))
+
 (defn- target-of
   "The ref `branch` follows: its upstream, or for the default and the
   development branch without one, the default branch of origin."
@@ -222,6 +232,9 @@
             (cond
               (zero? behind)
               {:status :current :message (str branch " is up to date with " target)}
+
+              (seq (ignored-in-the-way checkout target))
+              (skip (str target " starts tracking ignored files it would overwrite: " (str/join ", " (ignored-in-the-way checkout target))))
 
               (zero? ahead)
               (if (zero? (:exit (git "-C" checkout "merge" "--ff-only" "--quiet" target)))
