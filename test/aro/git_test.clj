@@ -333,3 +333,8 @@
     (s/git (path "clones" "app" "main") "branch" "stale")
     (is (= ["stale"] (:deleted (git/prune-branches! r false))))
     (is (= #{"main" "development" "feature"} (branches gd)))))
+
+(deftest repositories-clone-over-ssh
+  (is (= "github.com:metio/aro" (git/clone-url {:host "github.com" :path "metio/aro"})))
+  (is (= ["github.com:metio/ilo" "gitlab.com:metio.wtf/ilo"]
+         (git/push-urls {:host "github.com" :path "metio/ilo" :mirrors ["gitlab.com:metio.wtf/ilo"]}))))
