@@ -27,6 +27,19 @@
                           (throw (ex-info (str s " names no host:path") {:aro/problem :invalid-id})))]
     {:host host :path path}))
 
+(defn canonical-id
+  "The id `s` names in the host:path spelling, or `s` itself when it names
+  none, so that config keys may use any spelling parse-id accepts."
+  [s]
+  (try (id (parse-id s)) (catch clojure.lang.ExceptionInfo _ s)))
+
+(defn- canonical-overrides
+  "`config` with its :repositories keyed by canonical id, overrides of two
+  spellings of one id merged."
+  [config]
+  (update config :repositories
+          #(reduce-kv (fn [m k v] (update m (canonical-id k) merge v)) {} %)))
+
 (defn- record-of-addition
   "The record of `addition`, over the `fetched` record of the same id when a
   source lists it too, so its default branch and topics remain."
@@ -90,7 +103,8 @@
   id, sorted by id. A repository another one names as a mirror is left out,
   because the clone of that one pushes to it."
   [config sources]
-  (let [mirrors (set (mapcat :mirrors (vals (:repositories config))))
+  (let [config (canonical-overrides config)
+        mirrors (set (map canonical-id (mapcat :mirrors (vals (:repositories config)))))
         by-source (into {} (map (juxt :id identity)) (:sources config))
         fetched (for [source (:sources config)
                       record (get sources (:id source))
@@ -125,8 +139,8 @@
   "The repositories of `group`: those matching any of its :match maps, every
   key of a map holding, plus its :include ids, minus its :exclude ids."
   [group repositories]
-  (let [include (set (:include group))
-        exclude (set (:exclude group))]
+  (let [include (set (map canonical-id (:include group)))
+        exclude (set (map canonical-id (:exclude group)))]
     (filterv #(and (not (exclude (:id %)))
                    (or (include (:id %)) (some (partial matches? %) (:match group))))
              repositories)))

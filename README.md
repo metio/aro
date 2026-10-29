@@ -65,7 +65,7 @@ A `:tunnel` runs `ssh -N -L 127.0.0.1:PORT:TARGET SSH` on a free local port for 
 
 ## Repositories
 
-Overrides go in `:repositories`, keyed by id; repositories the forges do not list go in `:add`.
+Overrides go in `:repositories`, keyed by id; repositories the forges do not list go in `:add`. An id may be written in any spelling `REPO` accepts, in overrides, `:mirrors` and a group's `:include` and `:exclude` alike.
 
 ```clojure
 {:repositories {"github.com:metio/aro" {:layout :worktrees :branch "main"}

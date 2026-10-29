@@ -91,3 +91,16 @@
       (is (= ["b.org:y/inner"] (map :id (model/find-repositories [outer inner] [(str root "/src/inner/lib")]))))
       (is (= ["a.org:x/outer"] (map :id (model/find-repositories [outer inner] [(str root "/src")]))))
       (finally (babashka.fs/delete-tree root)))))
+
+(deftest ids-in-the-config-may-use-any-spelling
+  (let [config (-> config
+                   (assoc-in [:repositories "git@github.com:metio/aro.git"] {:branch "trunk"})
+                   (update :repositories dissoc "github.com:metio/aro")
+                   (assoc-in [:repositories "https://github.com/sebhoss/dotfiles"] {:mirrors ["https://git.example.org/infra.run/tools/fahrplan.git"]}))
+        rs (model/repositories config inventory)
+        by-id (into {} (map (juxt :id identity)) rs)]
+    (is (= "trunk" (:branch (by-id "github.com:metio/aro"))))
+    (is (not (contains? by-id "git.example.org:infra.run/tools/fahrplan")))
+    (is (= ["https://git.example.org/infra.run/tools/fahrplan.git"] (:mirrors (by-id "github.com:sebhoss/dotfiles"))))
+    (is (= ["github.com:metio/aro"]
+           (map :id (model/group-members {:match [{:host "github.com"}] :exclude ["git@github.com:sebhoss/dotfiles.git"]} rs))))))
