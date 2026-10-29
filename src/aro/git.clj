@@ -292,11 +292,11 @@
         {:status :failed :message (str schedule " maintenance failed: " (str/trim err))}))
     {:status :missing :message "not cloned"}))
 
-(defn- checked-out [dir layout]
-  (set (if (= :plain layout)
-         (let [{:keys [exit out]} (git "-C" dir "symbolic-ref" "--quiet" "--short" "HEAD")]
-           (when (zero? exit) [(str/trim out)]))
-         (keep :branch (worktrees dir)))))
+(defn- checked-out
+  "The branches some worktree of the clone at `dir` has checked out; for a
+  plain clone that is its own checkout and its linked worktrees."
+  [dir]
+  (set (keep :branch (worktrees dir))))
 
 (defn prune-branches!
   "Deletes the local branches of the clone of `repository` whose commits the
@@ -306,11 +306,11 @@
   `dry-run`, nothing is deleted. Returns {:status :missing|:failed|:done
   :message :deleted [branch] :kept [{:branch :message}]}."
   [{:keys [dir branch]} dry-run]
-  (if-let [layout (layout-on-disk dir)]
+  (if (layout-on-disk dir)
     (let [gd (git-dir dir)
           default branch
           target (str "refs/remotes/origin/" default)
-          protected (into #{default development} (checked-out dir layout))]
+          protected (into #{default development} (checked-out dir))]
       (if-not (zero? (:exit (git "--git-dir" gd "rev-parse" "--verify" "--quiet" target)))
         {:status :failed :message (str "origin/" default " does not exist")}
         (let [local (for [line (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname:short) %(upstream:track)" "refs/heads"))

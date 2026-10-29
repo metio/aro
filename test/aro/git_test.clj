@@ -313,6 +313,17 @@
       (is (= [{:branch "abandoned" :message "its upstream is gone and it holds 1 commit origin/main lacks"}] (:kept result)))
       (is (= #{"main" "development" "current" "wip" "abandoned"} (branches dir))))))
 
+(deftest pruning-a-plain-clone-keeps-the-branches-of-its-linked-worktrees
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")]
+    (git/clone! r)
+    (s/git dir "branch" "merged")
+    (s/git dir "worktree" "add" "--quiet" "-b" "feat" (path "clones" "app-feat"))
+    (let [result (git/prune-branches! r false)]
+      (is (= ["merged"] (:deleted result)))
+      (is (= #{"main" "feat"} (branches dir))))))
+
 (deftest pruning-keeps-the-branches-of-every-worktree
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
         r (repository upstream :worktrees)
