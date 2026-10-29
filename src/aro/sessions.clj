@@ -133,10 +133,9 @@
   [{:keys [airmux ttt]} airmux-dir]
   (let [manifest-path (fs/path airmux-dir manifest)
         previous (if (fs/exists? manifest-path) (str/split-lines (slurp (str manifest-path))) [])
-        files (merge (update-keys airmux #(str (fs/path airmux-dir %)))
-                     (update-vals ttt identity))
-        written (vec (for [[path content] (sort-by key files)
-                           :let [text (if (str/ends-with? path ".ttt") (render-workspace content) (render-session content))]
+        files (merge (into {} (for [[path session] airmux] [(str (fs/path airmux-dir path)) (render-session session)]))
+                     (into {} (for [[path workspace] ttt] [path (render-workspace workspace)])))
+        written (vec (for [[path text] (sort-by key files)
                            :when (write-if-changed! path text)]
                        path))
         stale (vec (for [path previous :when (and (not (contains? files path)) (fs/exists? path))]

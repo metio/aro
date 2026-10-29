@@ -88,6 +88,11 @@
     (testing "a group without members still gets a workspace for its dirs"
       (is (= {"folders" [{"path" "/opt/x"}]} (get-in plan [:ttt (path "ttt" "only-dirs.ttt")]))))))
 
+(deftest workspaces-are-json-whatever-their-name
+  (let [file (path "ttt" "work.code-workspace")]
+    (sessions/write! {:airmux {} :ttt {file {"folders" [{"path" "/x"}]}}} (path "airmux"))
+    (is (= {"folders" [{"path" "/x"}]} (json/parse-string (slurp file))))))
+
 (deftest writing-replaces-what-the-last-run-wrote
   (let [airmux (path "airmux")
         first-plan {:airmux {"metio/a.yml" {"session_name" "a"} "metio/b.yml" {"session_name" "b"}} :ttt {(path "ttt" "x.ttt") {"folders" []}}}]
