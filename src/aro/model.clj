@@ -146,7 +146,7 @@
                            (let [root (str (fs/canonicalize (:dir repository)))]
                              (or (= dir root) (str/starts-with? dir (str root "/")))))
                  found (or (first (filter #(= arg (:id %)) repositories))
-                           (when dir (first (filter inside? repositories)))
+                           (when dir (last (sort-by #(count (str (fs/canonicalize (:dir %)))) (filter inside? repositories))))
                            (let [{:keys [host path]} (try (parse-id arg) (catch Exception _ nil))]
                              (first (filter #(= (str host ":" path) (:id %)) repositories))))]
              (or found (throw (ex-info (str arg " names no known repository") {:aro/problem :unknown-repository}))))))))

@@ -3,6 +3,7 @@
 
 (ns aro.model-test
   (:require [aro.model :as model]
+            [babashka.fs]
             [clojure.string]
             [clojure.test :refer [deftest is testing]]))
 
@@ -74,3 +75,13 @@
   (let [rs (model/repositories config inventory)]
     (is (= ["github.com:metio/aro"] (map :id (model/find-repositories rs ["https://github.com/metio/aro"]))))
     (is (thrown-with-msg? Exception #"names no known repository" (model/find-repositories rs ["github.com:x/y"])))))
+
+(deftest a-directory-names-the-innermost-clone
+  (let [root (str (babashka.fs/create-temp-dir))
+        outer {:id "a.org:x/outer" :dir (str root "/src")}
+        inner {:id "b.org:y/inner" :dir (str root "/src/inner")}]
+    (babashka.fs/create-dirs (str root "/src/inner/lib"))
+    (try
+      (is (= ["b.org:y/inner"] (map :id (model/find-repositories [outer inner] [(str root "/src/inner/lib")]))))
+      (is (= ["a.org:x/outer"] (map :id (model/find-repositories [outer inner] [(str root "/src")]))))
+      (finally (babashka.fs/delete-tree root)))))
