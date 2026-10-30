@@ -44,6 +44,15 @@
            session))
     (is (= [{:name "edit" :script "jetbrains-idea ."} {:name "joi" :script "cd ../jsonnet-oci-images; clear"}] windows))))
 
+(deftest an-empty-first-window-runs-no-default-startup-command
+  (let [{:keys [session windows]} (sesh/session "all.yml" {"session_name" "all" "working_dir" "${HOME}/git"
+                                                            "windows" [{"shell" nil} {"herdr" {"panes" [{"command" "herdr"}]}}]}
+                                                home)]
+    (is (= {"name" "all" "path" "~/git" "disable_startup_command" true "windows" ["herdr"]} session))
+    (is (= [{:name "herdr" :script "herdr"}] windows)))
+  (is (str/includes? (:text (sesh/render {"a.yml" {"session_name" "a" "working_dir" "/a"}} home))
+                     "disable_startup_command = true")))
+
 (deftest group-sessions-run-their-pane-commands
   (is (= "ttt --workspace ~/ttt/x.ttt"
          (get-in (sesh/session "all.yml" {"session_name" "all" "working_dir" "${HOME}/git"
