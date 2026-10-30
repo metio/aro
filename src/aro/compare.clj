@@ -159,7 +159,7 @@
                     exclude (when theirs (sort (map :id (filter #(not (theirs (canonical (:dir %)))) members))))
                     session-file (get-in group [:session :file] (str (:id group) ".yml"))
                     differences (when-let [session (and (:session group) (get existing session-file))]
-                                  (key-differences (get-in plan [:airmux session-file]) session))
+                                  (key-differences (get-in plan [:sessions session-file]) session))
                     change (cond-> {}
                              (seq include) (assoc :include (vec include))
                              (seq exclude) (assoc :exclude (vec exclude))
@@ -211,7 +211,7 @@
         (swap! report conj [:new (str (:session-file r) " is new, for " (:id r))])
         (let [missing (when (git/layout-on-disk (:dir r))
                         (remove #(fs/exists? (expand-home %)) (referenced-dirs session)))
-              differences (key-differences (get-in plan [:airmux (:session-file r)]) session)
+              differences (key-differences (get-in plan [:sessions (:session-file r)]) session)
               kept (into (array-map) (remove #(mentions? (val %) missing)) differences)]
           (when (not= path (:session-file r))
             (swap! session-overrides assoc-in [(:id r) :session-file] path))

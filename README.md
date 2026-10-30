@@ -5,14 +5,14 @@ SPDX-License-Identifier: 0BSD
 
 # aro
 
-aro lists the repositories of GitHub organizations and users, GitLab groups and Forgejo instances, clones them in one of two layouts, keeps every clone up to date without losing local work, and generates [airmux](https://github.com/dermoumi/airmux) sessions and [ttt](https://github.com/eugenioenko/ttt) workspaces for them. It runs on [babashka](https://babashka.org) and calls `git`, `curl` and, for tunnels, `ssh`.
+aro lists the repositories of GitHub organizations and users, GitLab groups and Forgejo instances, clones them in one of two layouts, keeps every clone up to date without losing local work, and generates tmux sessions for [airmux](https://github.com/dermoumi/airmux) or [sesh](https://github.com/joshmedeski/sesh) and [ttt](https://github.com/eugenioenko/ttt) workspaces for them. It runs on [babashka](https://babashka.org) and calls `git`, `curl` and, for tunnels, `ssh`.
 
 ## Commands
 
 ```shell
 aro fetch [SOURCE...]                       # list the sources' repositories into the inventory
 aro list                                    # print every repository with layout, branch and directory
-aro generate [--out DIR]                    # write the airmux sessions and ttt workspaces
+aro generate [--out DIR]                    # write the sessions and ttt workspaces
 aro compare [--toml FILE]...                # compare with the files on disk, print suggested config
 aro clone [REPO...] [--max N]               # clone what is missing, one at a time, at most N
 aro update [REPO...] [--jobs N]             # fetch and update every clone
@@ -80,7 +80,7 @@ Overrides go in `:repositories`, keyed by id; repositories the forges do not lis
 
 ## Groups and custom sessions
 
-A group collects repositories into a ttt workspace and, with `:session`, an airmux session opening it.
+A group collects repositories into a ttt workspace and, with `:session`, a session opening it.
 
 ```clojure
 {:groups [{:id "helm-charts"
@@ -125,7 +125,16 @@ Skipped branches print `[SKIP]` with the reason. A failed fetch prints `[ERROR]`
 
 ## Generating and comparing
 
-`aro generate` writes a session per repository and group to `:airmux-dir` (default `$XDG_CONFIG_HOME/airmux`) and the workspaces to `:ttt-dir` (default `$XDG_DATA_HOME/ttt`). A manifest in the airmux directory records what aro wrote, so a later run deletes sessions it no longer generates and leaves other files alone.
+`aro generate` writes a session per repository and group for each session manager `:session-managers` names, by default `[:airmux]`, and the workspaces to `:ttt-dir` (default `$XDG_DATA_HOME/ttt`). A manifest at `:manifest` (default `$XDG_STATE_HOME/aro/generated`) records what aro wrote, so a later run deletes files it no longer generates, those of a session manager taken off the list included, and leaves other files alone.
+
+Sessions, their `:session` overrides and the custom `:sessions` are written in airmux's keys, and each session manager renders them in its own format:
+
+| Session manager | Output |
+| --- | --- |
+| `:airmux` | A YAML file per session below `:airmux-dir` (default `$XDG_CONFIG_HOME/airmux`), at its session file. |
+| `:sesh` | One TOML file, `:sesh-file` (default `$XDG_CONFIG_HOME/sesh/aro.toml`), for `sesh.toml` to read with `import = ["~/.config/sesh/aro.toml"]`, so the rest of `sesh.toml` stays the user's. |
+
+`[:airmux :sesh]` generates both. sesh opens a session's first window in its path and types its `startup_command` there, and opens every further window as a `[[window]]` that starts in the session's path, so aro gives that window a `cd` into its directory. sesh has no panes: a window keeps the first pane of its airmux window, its commands follow the session's and window's `pane_commands`, and `aro generate` warns about every pane and key that sesh cannot express, such as `layout` or `on_start`, and about sessions sharing a name, since sesh connects to the first of them. Windows written the same in several sessions, such as the worktree of the default branch, become one `[[window]]`. aro writes every clone's session, so sesh's `[[wildcard]]` patterns are only needed for directories aro does not manage.
 
 `aro compare` reads the sessions and workspaces on disk and prints the config that would make aro generate them: layout overrides from the clones on disk, session keys that differ, files that match no repository, and group includes and excludes. A hand-written session naming directories that do not exist is reported as stale, and the generated keys are kept for it. `--toml` reads chezmoi data files listing repositories as `[[x_git_repos]]` tables with `upstream`, `worktrees`, `branch` and `local`.
 

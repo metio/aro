@@ -25,7 +25,10 @@
    :groups []
    :sessions {}
    :git-root (str (fs/path (home) "git"))
+   :session-managers [:airmux]
    :airmux-dir (str (fs/path (env-dir "XDG_CONFIG_HOME" ".config") "airmux"))
+   :sesh-file (str (fs/path (env-dir "XDG_CONFIG_HOME" ".config") "sesh" "aro.toml"))
+   :manifest (str (fs/path (env-dir "XDG_STATE_HOME" ".local/state") "aro" "generated"))
    :ttt-dir (str (fs/path (env-dir "XDG_DATA_HOME" ".local/share") "ttt"))
    :inventory (str (fs/path (env-dir "XDG_STATE_HOME" ".local/state") "aro" "inventory.edn"))
    :layout :plain
@@ -42,5 +45,7 @@
     (-> (merge (defaults) user)
         (update :git-root expand-home)
         (update :airmux-dir expand-home)
+        (update :sesh-file expand-home)
+        (update :manifest expand-home)
         (update :ttt-dir expand-home)
         (update :inventory expand-home))))

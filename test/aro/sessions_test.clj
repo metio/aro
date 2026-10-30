@@ -2,7 +2,8 @@
 ;; SPDX-License-Identifier: 0BSD
 
 (ns aro.sessions-test
-  (:require [aro.sessions :as sessions]
+  (:require [aro.managers :as managers]
+            [aro.sessions :as sessions]
             [aro.support :as s :refer [path]]
             [babashka.fs :as fs]
             [cheshire.core :as json]
@@ -46,11 +47,11 @@
                 :sessions {"metio/jaas.yml" {:session_name "jaas" :windows [{:edit {:panes [{:clear true}]}}]}}}
         rs [(repository "a" :plain) (repository "b" :worktrees :session false)]
         plan (sessions/plan config rs)]
-    (is (= #{"metio/a.yml" "metio/all.yml" "metio/jaas.yml"} (set (keys (:airmux plan)))))
+    (is (= #{"metio/a.yml" "metio/all.yml" "metio/jaas.yml"} (set (keys (:sessions plan)))))
     (is (= {"session_name" "metio charts"
             "working_dir" "${HOME}/git/github.com/metio"
             "windows" [{"edit" {"panes" [{"pane_commands" [(str "ttt --workspace " (path "ttt" "charts.ttt"))]}]}}]}
-           (get-in plan [:airmux "metio/all.yml"])))
+           (get-in plan [:sessions "metio/all.yml"])))
     (testing "a group without :session has only its workspace"
       (is (= #{(path "ttt" "charts.ttt") (path "ttt" "quiet.ttt")} (set (keys (:ttt plan))))))
     (is (= {"folders" [{"path" (str home "/git/github.com/metio/a")} {"path" (str home "/git/github.com/metio/b")}]}
@@ -62,7 +63,7 @@
         c (repository "other" :plain :session-file "c.yml")
         named (repository "grafana" :plain :id "x.org:team/named/grafana" :namespace "team/named" :session-file "d.yml"
                           :session {:session_name "mine"})
-        airmux (:airmux (sessions/plan {} [a b c named]))]
+        airmux (:sessions (sessions/plan {} [a b c named]))]
     (is (= ["dashboards-grafana" "charts-grafana" "other" "mine"]
            (map #(get-in airmux [% "session_name"]) ["a.yml" "b.yml" "c.yml" "d.yml"])))))
 
@@ -74,7 +75,7 @@
 
 (deftest a-group-without-members-gets-no-session
   (let [config {:ttt-dir (path "ttt") :groups [{:id "g" :session {} :match [{:host "nowhere"}]}]}]
-    (is (= {:airmux {"metio/aro.yml" (sessions/repository-session (repository "aro" :plain))} :ttt {}}
+    (is (= {:sessions {"metio/aro.yml" (sessions/repository-session (repository "aro" :plain))} :ttt {}}
            (sessions/plan config [(repository "aro" :plain)])))))
 
 (deftest group-dirs-add-folders-to-the-workspace
@@ -90,18 +91,38 @@
 
 (deftest workspaces-are-json-whatever-their-name
   (let [file (path "ttt" "work.code-workspace")]
-    (sessions/write! {:airmux {} :ttt {file {"folders" [{"path" "/x"}]}}} (path "airmux"))
+    (sessions/write! (sessions/workspace-files {:sessions {} :ttt {file {"folders" [{"path" "/x"}]}}}) (path "generated"))
     (is (= {"folders" [{"path" "/x"}]} (json/parse-string (slurp file))))))
 
+(defn- generated [plan config]
+  (merge (:files (managers/files config (:sessions plan))) (sessions/workspace-files plan)))
+
 (deftest writing-replaces-what-the-last-run-wrote
-  (let [airmux (path "airmux")
-        first-plan {:airmux {"metio/a.yml" {"session_name" "a"} "metio/b.yml" {"session_name" "b"}} :ttt {(path "ttt" "x.ttt") {"folders" []}}}]
+  (let [config {:session-managers [:airmux] :airmux-dir (path "airmux")}
+        manifest (path "state" "generated")
+        first-plan {:sessions {"metio/a.yml" {"session_name" "a"} "metio/b.yml" {"session_name" "b"}} :ttt {(path "ttt" "x.ttt") {"folders" []}}}]
     (fs/create-dirs (path "airmux" "mine"))
     (spit (path "airmux" "mine" "hand.yml") "session_name: hand\n")
-    (is (= 3 (count (:written (sessions/write! first-plan airmux)))))
+    (is (= 3 (count (:written (sessions/write! (generated first-plan config) manifest)))))
     (is (= {"session_name" "a"} (yaml/parse-string (slurp (path "airmux" "metio" "a.yml")) :keywords false)))
     (is (= {"folders" []} (json/parse-string (slurp (path "ttt" "x.ttt")))))
-    (let [{:keys [written deleted]} (sessions/write! (update first-plan :airmux dissoc "metio/b.yml") airmux)]
+    (let [{:keys [written deleted]} (sessions/write! (generated (update first-plan :sessions dissoc "metio/b.yml") config) manifest)]
       (is (empty? written))
       (is (= [(path "airmux" "metio" "b.yml")] deleted)))
-    (is (fs/exists? (path "airmux" "mine" "hand.yml")))))
+    (is (fs/exists? (path "airmux" "mine" "hand.yml")))
+    (testing "switching to sesh deletes the airmux files and writes the sesh file"
+      (let [{:keys [written deleted]} (sessions/write! (generated first-plan (assoc config :session-managers [:sesh] :sesh-file (path "sesh" "aro.toml"))) manifest)]
+        (is (= [(path "sesh" "aro.toml")] written))
+        (is (= [(path "airmux" "metio" "a.yml")] deleted))))))
+
+(deftest the-manifest-moves-out-of-the-airmux-directory
+  (fs/create-dirs (path "airmux"))
+  (spit (path "airmux" ".aro-generated") (str (path "airmux" "old.yml") "\n"))
+  (spit (path "airmux" "old.yml") "session_name: old\n")
+  (sessions/migrate-manifest! (path "airmux") (path "state" "generated"))
+  (is (not (fs/exists? (path "airmux" ".aro-generated"))))
+  (is (= [(path "airmux" "old.yml")] (:deleted (sessions/write! {} (path "state" "generated"))))))
+
+(deftest unknown-session-managers-are-refused
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":tmuxinator, which aro does not know; it knows :airmux, :sesh"
+                        (managers/files {:session-managers [:tmuxinator]} {}))))

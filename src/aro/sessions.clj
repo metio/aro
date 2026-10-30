@@ -2,14 +2,14 @@
 ;; SPDX-License-Identifier: 0BSD
 
 (ns aro.sessions
-  "The generated files: an airmux session per repository and per group, a
-  ttt workspace per group, and the custom sessions of the config verbatim.
-  Sessions are maps with string keys, the shape airmux reads, so an override
-  or a custom session is written exactly as it would appear in YAML."
+  "The sessions and workspaces aro generates: a session per repository and
+  per group, a ttt workspace per group, and the custom sessions of the config
+  verbatim. Sessions are maps with string keys in the shape airmux reads, so
+  an override or a custom session is written exactly as it would appear in
+  airmux's YAML; each session manager renders them in its own format."
   (:require [aro.model :as model]
             [babashka.fs :as fs]
             [cheshire.core :as json]
-            [clj-yaml.core :as yaml]
             [clojure.string :as str]
             [clojure.walk :as walk]))
 
@@ -90,12 +90,14 @@
          repositories sessions)))
 
 (defn plan
-  "Every generated file as {:airmux {relative-path session} :ttt {path
-  workspace}}."
+  "Every generated session and workspace as {:sessions {relative-path
+  session} :ttt {path workspace}}. The relative path is the session's file
+  below the airmux directory, which also identifies it for other session
+  managers."
   [config repositories]
   (let [groups (for [group (:groups config)]
                  [group (model/group-members group repositories) (model/group-dirs config group)])]
-    {:airmux (merge (let [rs (remove #(false? (:session %)) repositories)]
+    {:sessions (merge (let [rs (remove #(false? (:session %)) repositories)]
                       (when-let [shared (seq (for [[file same] (group-by :session-file rs) :when (< 1 (count same))]
                                                (str file " (" (str/join ", " (sort (map :id same))) ")")))]
                         (throw (ex-info (str "several repositories have the same session file, set :session-file or :session false for all but one: "
@@ -111,13 +113,28 @@
                          :when (or (seq members) (seq dirs))]
                      [(ttt-file config group) (ttt-workspace members dirs)]))}))
 
-(defn render-session [session]
-  (yaml/generate-string session :dumper-options {:flow-style :block :indent 4 :indicator-indent 2}))
-
 (defn render-workspace [workspace]
   (str (json/generate-string workspace {:pretty true}) "\n"))
 
-(def ^:private manifest ".aro-generated")
+(def legacy-manifest
+  "The manifest's name in the airmux directory, where aro kept it before it
+  generated for other session managers."
+  ".aro-generated")
+
+(defn migrate-manifest!
+  "Moves a manifest from the airmux directory `airmux-dir` to `manifest`,
+  unless one is there already, so the next write still deletes what the
+  earlier runs wrote."
+  [airmux-dir manifest]
+  (let [legacy (fs/path airmux-dir legacy-manifest)]
+    (when (and (fs/exists? legacy) (not (fs/exists? manifest)))
+      (fs/create-dirs (fs/parent manifest))
+      (fs/move legacy manifest))))
+
+(defn workspace-files
+  "{path text} of the workspaces of `plan`."
+  [plan]
+  (into {} (for [[path workspace] (:ttt plan)] [path (render-workspace workspace)])))
 
 (defn- write-if-changed! [path text]
   (when (not= text (when (fs/exists? path) (slurp (str path))))
@@ -126,20 +143,17 @@
     true))
 
 (defn write!
-  "Writes the airmux files of `plan` below `airmux-dir` and its workspaces,
-  and deletes the files a previous run generated that `plan` no longer
-  holds; a manifest in `airmux-dir` records what aro wrote. Returns the
-  written and deleted paths."
-  [{:keys [airmux ttt]} airmux-dir]
-  (let [manifest-path (fs/path airmux-dir manifest)
+  "Writes `files`, {path text}, and deletes the files a previous run wrote
+  that `files` no longer holds; the file `manifest` records what aro wrote.
+  Returns the written and deleted paths."
+  [files manifest]
+  (let [manifest-path (fs/path manifest)
         previous (if (fs/exists? manifest-path) (str/split-lines (slurp (str manifest-path))) [])
-        files (merge (into {} (for [[path session] airmux] [(str (fs/path airmux-dir path)) (render-session session)]))
-                     (into {} (for [[path workspace] ttt] [path (render-workspace workspace)])))
         written (vec (for [[path text] (sort-by key files)
                            :when (write-if-changed! path text)]
                        path))
         stale (vec (for [path previous :when (and (not (contains? files path)) (fs/exists? path))]
                      (do (fs/delete path) path)))]
-    (fs/create-dirs airmux-dir)
+    (fs/create-dirs (fs/parent manifest-path))
     (spit (str manifest-path) (str (str/join "\n" (sort (keys files))) "\n"))
     {:written written :deleted stale}))

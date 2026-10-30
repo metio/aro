@@ -7,6 +7,7 @@
             [aro.forge :as forge]
             [aro.git :as git]
             [aro.inventory :as inventory]
+            [aro.managers :as managers]
             [aro.model :as model]
             [aro.orphans :as orphans]
             [aro.sessions :as sessions]
@@ -24,7 +25,7 @@
 Commands:
   fetch [SOURCE...]        List the repositories of the sources from their forges into the inventory
   list                     Print every repository with its layout and directory
-  generate [--out DIR]     Write the airmux sessions and ttt workspaces
+  generate [--out DIR]     Write the sessions of :session-managers and the ttt workspaces
   compare [--toml FILE]... Compare the generated files with those on disk and print suggested overrides
   clone [REPO...] [--max N] [--delay SECONDS]
                            Clone the repositories that are missing, one at a time, at most N of them
@@ -93,8 +94,13 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
 
 (defn- generate! [config {:keys [out]}]
   (let [config (cond-> config
-                 out (assoc :airmux-dir (str (fs/path out "airmux")) :ttt-dir (str (fs/path out "ttt"))))
-        {:keys [written deleted]} (sessions/write! (sessions/plan config (repositories config)) (:airmux-dir config))]
+                 out (assoc :airmux-dir (str (fs/path out "airmux")) :ttt-dir (str (fs/path out "ttt"))
+                            :sesh-file (str (fs/path out "sesh" "aro.toml")) :manifest (str (fs/path out "generated"))))
+        plan (sessions/plan config (repositories config))
+        {:keys [files warnings]} (managers/files config (:sessions plan))
+        _ (sessions/migrate-manifest! (:airmux-dir config) (:manifest config))
+        {:keys [written deleted]} (sessions/write! (merge files (sessions/workspace-files plan)) (:manifest config))]
+    (doseq [w warnings] (println (str "[WARN] " w)))
     (doseq [path written] (ok "wrote " path))
     (doseq [path deleted] (ok "deleted " path))
     true))
