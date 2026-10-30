@@ -2,3 +2,9 @@
 # SPDX-License-Identifier: 0BSD
 
 version = 1
+
+[[annotations]]
+path = "renovate.json"
+precedence = "override"
+SPDX-FileCopyrightText = "The aro Authors"
+SPDX-License-Identifier = "0BSD"
