@@ -86,15 +86,50 @@
     (is (= "edited\n" (slurp (path "clones" "app" "README"))))
     (is (= "untracked\n" (slurp (path "clones" "app" "scratch"))))))
 
-(deftest updating-skips-when-local-changes-touch-incoming-files
-  (let [upstream (s/upstream! "app" {"README" "hello\n"})
-        r (repository upstream :plain)]
+(deftest updating-rolls-back-when-local-changes-conflict-with-incoming-ones
+  (let [upstream (s/upstream! "app" {"README" "hello\n" "src" "one\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")]
     (git/clone! r)
     (spit (path "clones" "app" "README") "edited\n")
-    (s/push! upstream "second" {"README" "upstream\n"})
-    (is (= [["app" :skipped]] (statuses (git/update! r))))
+    (spit (path "clones" "app" "src") "staged\n")
+    (s/git dir "add" "src")
+    (spit (path "clones" "app" "scratch") "untracked\n")
+    (s/push! upstream "second" {"README" "upstream\n" "scratch" "theirs\n"})
+    (let [[result] (:checkouts (git/update! r))]
+      (is (= :skipped (:status result)))
+      (is (str/includes? (:message result) "README")))
     (is (= "edited\n" (slurp (path "clones" "app" "README"))))
-    (is (= "initial" (head-message (path "clones" "app"))))))
+    (is (= "untracked\n" (slurp (path "clones" "app" "scratch"))))
+    (is (= "initial" (head-message dir)))
+    (testing "staged changes stay staged"
+      (is (= "src" (s/git dir "diff" "--cached" "--name-only"))))
+    (is (empty? (s/git dir "stash" "list")))))
+
+(deftest updating-merges-local-changes-with-incoming-ones-to-the-same-file
+  (let [upstream (s/upstream! "app" {"README" "a\nb\nc\nd\ne\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")]
+    (git/clone! r)
+    (spit (path "clones" "app" "README") "mine\nb\nc\nd\ne\n")
+    (s/push! upstream "second" {"README" "a\nb\nc\nd\ntheirs\n"})
+    (is (= [["app" :updated]] (statuses (git/update! r))))
+    (is (= "second" (head-message dir)))
+    (is (= "mine\nb\nc\nd\ntheirs\n" (slurp (path "clones" "app" "README"))))
+    (is (empty? (s/git dir "stash" "list")))))
+
+(deftest updating-keeps-older-stash-entries
+  (let [upstream (s/upstream! "app" {"README" "hello\n" "src" "one\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")]
+    (git/clone! r)
+    (spit (path "clones" "app" "README") "stashed\n")
+    (s/git dir "stash" "push" "--quiet")
+    (spit (path "clones" "app" "README") "edited\n")
+    (s/push! upstream "second" {"src" "two\n"})
+    (is (= [["app" :updated]] (statuses (git/update! r))))
+    (is (= "edited\n" (slurp (path "clones" "app" "README"))))
+    (is (= 1 (count (str/split-lines (s/git dir "stash" "list")))))))
 
 (deftest updating-keeps-ignored-files-the-update-would-overwrite
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
@@ -138,7 +173,19 @@
     (is (= "mine\n" (slurp (path "clones" "app" "README"))))
     (is (not (fs/exists? (path "clones" "app" ".git" "rebase-merge"))))))
 
-(deftest updating-skips-diverged-branches-whose-changes-touch-incoming-files
+(deftest updating-rebases-diverged-branches-whose-changes-merge-with-incoming-ones
+  (let [upstream (s/upstream! "app" {"README" "a\nb\nc\nd\ne\n" "notes" "a\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")]
+    (git/clone! r)
+    (s/commit! dir "mine" {"notes" "b\n"})
+    (spit (path "clones" "app" "README") "mine\nb\nc\nd\ne\n")
+    (s/push! upstream "theirs" {"README" "a\nb\nc\nd\ntheirs\n"})
+    (is (= [["app" :updated]] (statuses (git/update! r))))
+    (is (= ["mine" "theirs" "initial"] (str/split-lines (s/git dir "log" "--format=%s"))))
+    (is (= "mine\nb\nc\nd\ntheirs\n" (slurp (path "clones" "app" "README"))))))
+
+(deftest updating-rolls-back-diverged-branches-whose-changes-conflict
   (let [upstream (s/upstream! "app" {"README" "hello\n" "notes" "a\n"})
         r (repository upstream :plain)
         dir (path "clones" "app")]

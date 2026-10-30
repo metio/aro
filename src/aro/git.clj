@@ -209,11 +209,62 @@
       (#{default-branch development} branch) {:target (str "origin/" default-branch)}
       :else {:skip "it has no upstream"})))
 
+(defn- integrate!
+  "Moves `checkout` onto `target`: a fast-forward when it has no commits of
+  its own, else a rebase, which is aborted when it conflicts. Returns whether
+  the branch moved."
+  [checkout ahead target]
+  (if (zero? ahead)
+    (zero? (:exit (git "-C" checkout "merge" "--ff-only" "--quiet" target)))
+    (or (zero? (:exit (git "-C" checkout "rebase" "--quiet" target)))
+        (do (git "-C" checkout "rebase" "--abort") false))))
+
+(defn- stash!
+  "Stashes the uncommitted changes of `checkout`, untracked files included,
+  and returns the stash commit, or nil when git found nothing to stash. The
+  top of the stash is compared before and after, so an older entry is never
+  taken for this one."
+  [checkout]
+  (let [top #(str/trim (:out (git "-C" checkout "rev-parse" "--verify" "--quiet" "refs/stash")))
+        before (top)]
+    (git! "-C" checkout "stash" "push" "--include-untracked" "--quiet" "--message" "aro update")
+    (let [after (top)]
+      (when (and (seq after) (not= before after)) after))))
+
+(defn- drop-stash!
+  "Drops the stash entry `stash`, wherever it is in the list by now."
+  [checkout stash]
+  (let [i (.indexOf ^java.util.List (lines (git! "-C" checkout "stash" "list" "--format=%H")) stash)]
+    (when-not (neg? i)
+      (git! "-C" checkout "stash" "drop" "--quiet" (str "stash@{" i "}")))))
+
+(defn- unstash!
+  "Applies `stash` with its staged changes; returns whether it applied cleanly."
+  [checkout stash]
+  (zero? (:exit (git "-C" checkout "stash" "apply" "--index" "--quiet" stash))))
+
+(defn- roll-back!
+  "Puts `checkout` back at `head` with the changes of `stash` as they were.
+  The untracked files of the stash are removed first, since a failed apply
+  may have restored some of them and git refuses to overwrite untracked
+  files. On `head` the stash applies cleanly, because it was made there."
+  [checkout head stash]
+  (git! "-C" checkout "reset" "--hard" "--quiet" head)
+  (when stash
+    (when (zero? (:exit (git "-C" checkout "rev-parse" "--verify" "--quiet" (str stash "^3"))))
+      (doseq [file (remove str/blank? (str/split (git! "-C" checkout "ls-tree" "-r" "-z" "--name-only" (str stash "^3")) #"\u0000"))]
+        (fs/delete-if-exists (fs/path checkout file))))
+    (when-not (unstash! checkout stash)
+      (throw (ex-info (str "the uncommitted changes could not be restored; they are kept in the stash as " stash)
+                      {:aro/problem :stash :stash stash})))
+    (drop-stash! checkout stash)))
+
 (defn sync-checkout!
   "Brings the branch checked out at `checkout` up to its target without
-  losing uncommitted work: a fast-forward when it has no commits of its own,
-  else a rebase that stashes the local changes around it. A merge or rebase
-  git refuses or that conflicts leaves the checkout as it was. Returns
+  losing uncommitted work: the changes are stashed, the branch fast-forwards
+  or rebases its own commits onto the target, and the changes are applied
+  again. When the rebase or the reapplied changes conflict, the checkout goes
+  back to the commit it was on with its changes as they were. Returns
   {:status :current|:updated|:skipped :message}."
   [checkout default-branch]
   (let [branch (let [{:keys [exit out]} (git "-C" checkout "symbolic-ref" "--quiet" "--short" "HEAD")]
@@ -236,26 +287,29 @@
               (seq (ignored-in-the-way checkout target))
               (skip (str target " starts tracking ignored files it would overwrite: " (str/join ", " (ignored-in-the-way checkout target))))
 
-              (zero? ahead)
-              (if (zero? (:exit (git "-C" checkout "merge" "--ff-only" "--quiet" target)))
-                {:status :updated :message (str branch " fast-forwarded " behind " commits to " target)}
-                (skip (str "uncommitted changes touch files " target " changes")))
-
-              (seq (local-paths checkout))
-              (let [incoming (set (lines (git! "-C" checkout "diff" "--name-only" "--no-renames" (str "HEAD..." target))))
-                    touched (filter incoming (local-paths checkout))]
-                (if (seq touched)
-                  (skip (str "it has " ahead " own commits and uncommitted changes to " (str/join ", " (sort touched)) ", which " target " changes"))
-                  (if (zero? (:exit (git "-C" checkout "rebase" "--autostash" "--quiet" target)))
-                    {:status :updated :message (str branch " rebased " ahead " commits onto " target)}
-                    (do (git "-C" checkout "rebase" "--abort")
-                        (skip (str "rebasing its " ahead " commits onto " target " conflicts"))))))
-
               :else
-              (if (zero? (:exit (git "-C" checkout "rebase" "--quiet" target)))
-                {:status :updated :message (str branch " rebased " ahead " commits onto " target)}
-                (do (git "-C" checkout "rebase" "--abort")
-                    (skip (str "rebasing its " ahead " commits onto " target " conflicts")))))))))))
+              (let [head (str/trim (git! "-C" checkout "rev-parse" "HEAD"))
+                    changed (local-paths checkout)
+                    stash (when (seq changed) (stash! checkout))
+                    moved (try (integrate! checkout ahead target)
+                               (catch Exception e (roll-back! checkout head stash) (throw e)))
+                    moved-message (if (zero? ahead)
+                                    (str branch " fast-forwarded " behind " commits to " target)
+                                    (str branch " rebased " ahead " commits onto " target))]
+                (cond
+                  (not moved)
+                  (do (roll-back! checkout head stash)
+                      (skip (str "rebasing its " ahead " commits onto " target " conflicts")))
+
+                  (or (nil? stash) (unstash! checkout stash))
+                  (do (when stash (drop-stash! checkout stash))
+                      {:status :updated :message moved-message})
+
+                  :else
+                  (let [incoming (set (lines (git! "-C" checkout "diff" "--name-only" "--no-renames" (str head "..." target))))]
+                    (roll-back! checkout head stash)
+                    (skip (str "its uncommitted changes to " (str/join ", " (sort (filter incoming changed)))
+                               " conflict with " target))))))))))))
 
 (defn update!
   "Points the push URLs of `repository` at it and its mirrors, fetches it and

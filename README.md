@@ -109,8 +109,9 @@ The plain layout is an ordinary clone. The worktrees layout is a bare repository
 
 `aro update` fetches every clone and brings each checked-out branch up to date with its upstream, or, for the default branch and `development` without an upstream, with the default branch of `origin`. It never loses local work:
 
-- A branch without commits of its own is fast-forwarded. Git refuses when uncommitted changes touch a file the update changes, and the branch is left as it is.
-- A branch with commits of its own is rebased, with uncommitted changes stashed around the rebase. When those changes touch a file the update changes, or the rebase conflicts, the branch is left as it was.
+- Uncommitted changes, staged and untracked files included, are stashed first and applied again afterwards, with the index as it was.
+- A branch without commits of its own is fast-forwarded, and a branch with commits of its own is rebased.
+- When the rebase conflicts, or the changes do not apply cleanly on the updated branch, the checkout goes back to the commit it was on with its changes as they were, and the branch is skipped. Changes to a file the update also changes stay in place when they merge without conflict.
 - An update that starts tracking a file the clone holds as an ignored file, such as a local `.env`, is skipped, since it would overwrite that file.
 - A detached HEAD, a merge or rebase in progress, a branch without upstream, and a branch whose upstream is gone are skipped.
 
