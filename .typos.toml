@@ -4,6 +4,3 @@
 [default.extend-words]
 edn = "edn"
 juxt = "juxt"
-
-[files]
-extend-exclude = ["flake.lock"]

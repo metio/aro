@@ -130,8 +130,11 @@ Skipped branches print `[SKIP]` with the reason. A failed fetch prints `[ERROR]`
 
 ## Development
 
+The `.breto.edn` names the `metio/toolchains` groups that pin babashka and the lint tools CI runs. With that registry under the `:registries` of the [breto](https://github.com/metio/breto) config, `breto env` links them into the project:
+
 ```shell
-nix develop --command bb test
+eval "$(breto env)"
+bb test
 ```
 
 ## License
