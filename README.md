@@ -149,4 +149,4 @@ bb test
 
 ## License
 
-0BSD, see [LICENSES/0BSD.txt](LICENSES/0BSD.txt).
+[0BSD](LICENSES/0BSD.txt).
