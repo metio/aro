@@ -26,7 +26,7 @@ jobs:
         uses: metio/ci/needs-release@1bcfd5d852697876af6c191fa597cf5aab22cb62 # 2026.10.31124002
         with:
           paths: src bb.edn aro .breto.edn README.md
-      - uses: metio/breto@3d35cbfa61e9b8e98fe3d92113390a6db219b66c # 2026.10.30182439
+      - uses: metio/ci/breto@f821815a1c92cfcba086d6bec4ede7a87deec697 # 2026.10.31191131
         if: steps.gate.outputs.needed == 'true'
         with:
           registries: github:metio/toolchains
