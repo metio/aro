@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: The aro Authors
+# SPDX-License-Identifier: 0BSD
+
+cff-version: 1.2.0
+title: aro
+message: If you use this software, please cite it as below.
+type: software
+authors:
+- family-names: Hoß
+  given-names: Sebastian
+  email: seb@hoß.de
+url: https://github.com/metio/aro/
+license: 0BSD
