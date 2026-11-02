@@ -124,17 +124,29 @@
          (sort-by :id)
          vec)))
 
-(def matcher-keys #{:namespace :namespace-prefix :topic :host :source})
+(def matcher-keys #{:namespace :namespace-prefix :topic :property :host :source})
+
+(defn- property-holds?
+  "Whether `repository` has every custom property `wanted` names with its
+  value, which for a multi-select property is one of the values it holds."
+  [repository wanted]
+  (every? (fn [[k v]]
+            (let [actual (get-in repository [:properties (keyword (name k))])]
+              (if (sequential? actual) (some #{v} actual) (= v actual))))
+          wanted))
 
 (defn- check-matcher!
   "Throws for a :match map of `group` that is empty, which would match every
-  repository, or names a key no repository has, which would match none."
+  repository, names a key no repository has, which would match none, or
+  holds a :property that is no map of properties to values."
   [group matcher]
   (when (empty? matcher)
     (throw (ex-info (str "the group " (:id group) " has an empty :match map") {:aro/problem :invalid-config})))
   (when-let [unknown (seq (remove matcher-keys (keys matcher)))]
     (throw (ex-info (str "the group " (:id group) " matches on " (str/join ", " unknown) ", which is none of " (str/join ", " (sort matcher-keys)))
-                    {:aro/problem :invalid-config}))))
+                    {:aro/problem :invalid-config})))
+  (when (and (contains? matcher :property) (not (and (map? (:property matcher)) (seq (:property matcher)))))
+    (throw (ex-info (str "the group " (:id group) " has a :property that is no map of properties to values") {:aro/problem :invalid-config}))))
 
 (defn- matches? [repository matcher]
   (every? (fn [[k v]]
@@ -142,6 +154,7 @@
               :namespace (= v (:namespace repository))
               :namespace-prefix (or (= v (:namespace repository)) (str/starts-with? (:namespace repository) (str v "/")))
               :topic (some #{v} (:topics repository))
+              :property (property-holds? repository v)
               :host (= v (:host repository))
               :source (= v (:source repository))
               false))

@@ -7,7 +7,8 @@
   every GitLab project the token's account is a member of. Each repository
   becomes a
   record of what the rest of aro needs: host, path, name, namespace, default
-  branch, whether it is archived or a fork, and its topics."
+  branch, whether it is archived or a fork, its topics, and on GitHub the
+  values of its custom properties."
   (:require [babashka.process :as process]
             [cheshire.core :as json]
             [clojure.string :as str])
@@ -47,15 +48,17 @@
         (into items batch)
         (recur (inc page) size (into items batch))))))
 
-(defn- github-record [host {:keys [name full_name default_branch archived fork topics]}]
-  {:host host
-   :path full_name
-   :name name
-   :namespace (first (str/split full_name #"/"))
-   :default-branch default_branch
-   :archived (boolean archived)
-   :fork (boolean fork)
-   :topics (vec (sort topics))})
+(defn- github-record [host {:keys [name full_name default_branch archived fork topics custom_properties]}]
+  (let [properties (into (sorted-map) (remove (comp nil? val)) custom_properties)]
+    (cond-> {:host host
+             :path full_name
+             :name name
+             :namespace (first (str/split full_name #"/"))
+             :default-branch default_branch
+             :archived (boolean archived)
+             :fork (boolean fork)
+             :topics (vec (sort topics))}
+      (seq properties) (assoc :properties properties))))
 
 (defn- gitlab-record [host {:keys [path path_with_namespace namespace default_branch archived topics forked_from_project]}]
   {:host host

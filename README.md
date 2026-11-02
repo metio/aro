@@ -93,7 +93,7 @@ A group collects repositories into a ttt workspace and, with `:session`, a sessi
  :sessions {"metio/jaas.yml" {:session_name "jaas" :windows [...]}}}
 ```
 
-Each map in `:match` selects the repositories for which all its keys hold: `:namespace`, `:namespace-prefix`, `:topic`, `:host` or `:source`. `:dirs` adds folders that are no repository to the workspace, resolved like a repository's `:dir`. `:sessions` are written as they are, for sessions spanning several repositories.
+Each map in `:match` selects the repositories for which all its keys hold: `:namespace`, `:namespace-prefix`, `:topic`, `:property`, `:host` or `:source`. `:property` maps custom property names to values, such as `{:property {:release "maven-central"}}`, and holds when the repository has each of them; a multi-select property holds when one of its values is the one named. Custom properties come from GitHub, which lists them with each repository of an organization. `:dirs` adds folders that are no repository to the workspace, resolved like a repository's `:dir`. `:sessions` are written as they are, for sessions spanning several repositories.
 
 ## Layouts
 

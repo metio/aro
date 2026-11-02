@@ -20,6 +20,12 @@
     (is (str/starts-with? (second (str/split-lines text)) " [{:host \"github.com\" :path \"metio/aro\""))
     (is (= (update-vals (:sources inv) #(sort-by :path %)) (:sources (inventory/parse text))))))
 
+(deftest custom-properties-round-trip-after-the-topics
+  (let [with (assoc record :properties {:release "maven-central" :features ["docs" "website"]})
+        text (inventory/render {:header "" :sources {"metio" [with]}})]
+    (is (str/includes? text ":topics [] :properties {"))
+    (is (= {"metio" [with]} (:sources (inventory/parse text))))))
+
 (deftest a-rewrite-keeps-the-header-and-reports-changes
   (let [file (path "inventory.edn")]
     (spit file ";; a license header\n\n{}\n")

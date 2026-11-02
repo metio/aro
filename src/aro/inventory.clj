@@ -13,7 +13,7 @@
             [clojure.edn :as edn]
             [clojure.string :as str]))
 
-(def record-keys [:host :path :name :namespace :default-branch :archived :fork :topics])
+(def record-keys [:host :path :name :namespace :default-branch :archived :fork :topics :properties])
 
 (defn- split-header [text]
   (let [lines (str/split-lines text)

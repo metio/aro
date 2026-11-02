@@ -27,7 +27,7 @@
             (record "git.example.org" "infra.run/tools/old")
             (record "git.example.org" "infra.run/attic" :archived true)
             (record "git.example.org" "infra.run/fork" :fork true)]
-   "metio" [(record "github.com" "metio/aro" :topics ["tmux"])]})
+   "metio" [(record "github.com" "metio/aro" :topics ["tmux"] :properties {:release "github" :features ["docs" "website"]})]})
 
 (deftest repositories-resolve-their-overrides
   (let [rs (model/repositories config inventory)
@@ -66,6 +66,14 @@
     (is (= ["git.example.org:infra.run/tools/fahrplan" "github.com:sebhoss/dotfiles"]
            (map :id (model/group-members {:match [{:namespace "infra.run/tools"}] :include ["github.com:sebhoss/dotfiles"]} rs))))
     (is (empty? (model/group-members {:match [{:host "github.com"}] :exclude ["github.com:metio/aro" "github.com:sebhoss/dotfiles"]} rs)))))
+
+(deftest groups-match-custom-properties
+  (let [rs (model/repositories config inventory)
+        members #(map :id (model/group-members {:match [{:property %}]} rs))]
+    (is (= ["github.com:metio/aro"] (members {:release "github"})))
+    (is (= ["github.com:metio/aro"] (members {"features" "website" :release "github"})))
+    (is (empty? (members {:release "maven-central"})))
+    (is (empty? (members {:features "blog"})))))
 
 (deftest ids-parse-every-spelling
   (doseq [s ["github.com:metio/aro" "git@github.com:metio/aro.git" "https://github.com/metio/aro" "ssh://git@github.com/metio/aro.git"]]
@@ -108,4 +116,6 @@
 (deftest group-matchers-with-unknown-keys-or-none-are-refused
   (let [rs (model/repositories config inventory)]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #":namespace_prefix" (model/group-members {:id "g" :match [{:namespace_prefix "infra.run"}]} rs)))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"empty" (model/group-members {:id "g" :match [{}]} rs)))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"empty" (model/group-members {:id "g" :match [{}]} rs)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #":property" (model/group-members {:id "g" :match [{:property {}}]} rs)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #":property" (model/group-members {:id "g" :match [{:property "release"}]} rs)))))

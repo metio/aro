@@ -27,6 +27,15 @@
     (is (= 2 (count @calls)))
     (is (= "Bearer secret" (get-in @calls [0 1 "Authorization"])))))
 
+(deftest github-records-carry-the-custom-properties-that-have-values
+  (let [pages {"https://api.github.com/orgs/metio/repos?type=all&per_page=100&page=1"
+               [{:name "a" :full_name "metio/a" :default_branch "main" :topics []
+                 :custom_properties {:release "maven-central" :features ["website" "docs"] :unset nil}}
+                {:name "b" :full_name "metio/b" :default_branch "main" :topics [] :custom_properties {}}]}
+        [a b] (forge/list-repositories {:id "metio" :github {:org "metio"}} (fake (atom []) pages) nil)]
+    (is (= {:features ["website" "docs"] :release "maven-central"} (:properties a)))
+    (is (not (contains? b :properties)))))
+
 (deftest github-users-list-their-own-repositories
   (let [calls (atom [])]
     (forge/list-repositories {:id "me" :github {:user "sebhoss"}} (fake calls {}) nil)
