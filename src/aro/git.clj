@@ -96,7 +96,7 @@
       (git! "clone" "--bare" "--quiet" (clone-url repository) gd)
       (git! "--git-dir" gd "config" "remote.origin.fetch" "+refs/heads/*:refs/remotes/origin/*")
       (git! "--git-dir" gd "config" "core.logallrefupdates" "true")
-      (git! "--git-dir" gd "fetch" "--quiet" "origin")
+      (git! "--git-dir" gd "fetch" "--quiet" "--no-recurse-submodules" "origin")
       (doseq [ref (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname)" "refs/heads"))]
         (git! "--git-dir" gd "update-ref" "-d" ref))
       (add-default! gd dir branch)
@@ -318,7 +318,7 @@
   [{:keys [dir branch] :as repository}]
   (if-let [layout (layout-on-disk dir)]
     (let [_ (configure-push! dir repository)
-          fetch (git "--git-dir" (git-dir dir) "fetch" "--prune" "--quiet" "origin")]
+          fetch (git "--git-dir" (git-dir dir) "fetch" "--prune" "--quiet" "--no-recurse-submodules" "origin")]
       (if-not (zero? (:exit fetch))
         {:status :failed :message (str "fetch failed: " (str/trim (:err fetch)))}
         {:status :done

@@ -231,6 +231,20 @@
     (fs/delete-tree (:url upstream))
     (is (= :failed (:status (git/update! r))))))
 
+(deftest updating-skips-submodules-the-clone-never-initialized
+  (let [lib (s/upstream! "lib" {"README" "lib\n"})
+        upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)]
+    (s/git (:work upstream) "-c" "protocol.file.allow=always" "submodule" "add" "--quiet" (:url lib) "plugin")
+    (s/push! upstream "add the plugin" {})
+    (git/clone! r)
+    (s/git (:dir r) "config" "fetch.recurseSubmodules" "on-demand")
+    (s/push! lib "change the plugin" {"README" "lib 2\n"})
+    (s/git (path "app-work" "plugin") "pull" "--quiet" "origin" "main")
+    (s/push! upstream "move the plugin" {})
+    (is (= :done (:status (git/update! r))))
+    (is (= "move the plugin" (head-message (:dir r))))))
+
 (deftest switching-to-worktrees-moves-the-checkout-as-it-is
   (let [upstream (s/upstream! "app" {"README" "hello\n" ".gitignore" "build/\n" "src" "one\n"})
         r (repository upstream :plain)
