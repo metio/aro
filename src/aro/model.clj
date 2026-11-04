@@ -33,6 +33,22 @@
   [s]
   (try (id (parse-id s)) (catch clojure.lang.ExceptionInfo _ s)))
 
+(defn mirrors
+  "The mirror ids of the repository of `record` and `override`: those of
+  the custom property `mirrors`, separated by whitespace, followed by the
+  override's :mirrors, without a second spelling of an id already listed."
+  [record override]
+  (let [property (get-in record [:properties :mirrors])
+        values (cond (string? property) [property]
+                     (sequential? property) (filter string? property))]
+    (->> (concat (mapcat #(remove str/blank? (str/split (str/trim %) #"\s+")) values)
+                 (:mirrors override))
+         (reduce (fn [[seen ids :as acc] mirror]
+                   (let [k (canonical-id mirror)]
+                     (if (seen k) acc [(conj seen k) (conj ids mirror)])))
+                 [#{} []])
+         second)))
+
 (defn- canonical-overrides
   "`config` with its :repositories keyed by canonical id, overrides of two
   spellings of one id merged."
@@ -90,7 +106,7 @@
                      (str (fs/path (:git-root config) (:host record) (:path record))))
             :session-file (or (:session-file override)
                               (str/join "/" (remove str/blank? [session-dir (relative-namespace root (:namespace record)) (str (:name record) ".yml")])))
-            :mirrors (vec (:mirrors override))
+            :mirrors (mirrors record override)
             :session (get override :session {})})))
 
 (defn- kept? [config source record]
@@ -104,19 +120,21 @@
   because the clone of that one pushes to it."
   [config sources]
   (let [config (canonical-overrides config)
-        mirrors (set (map canonical-id (mapcat :mirrors (vals (:repositories config)))))
         by-source (into {} (map (juxt :id identity)) (:sources config))
         fetched (for [source (:sources config)
                       record (get sources (:id source))
                       :when (kept? config source record)]
                   [source record])
         listed (into {} (for [records (vals sources) record records] [(id record) record]))
+        mirror-ids (set (for [rid (distinct (concat (keys (:repositories config)) (keys listed)))
+                              mirror (mirrors (get listed rid) (get-in config [:repositories rid]))]
+                          (canonical-id mirror)))
         added (for [addition (:add config)]
                 [(get by-source (:source addition) {:id (:source addition)})
                  (record-of-addition addition (get listed (id (parse-id (:id addition)))))])
         resolved (for [[source record] (concat fetched added)
                        :when (not (get-in config [:repositories (id record) :exclude]))
-                       :when (not (mirrors (id record)))]
+                       :when (not (mirror-ids (id record)))]
                    (resolve-repository config source record))]
     (->> resolved
          (reduce (fn [by-id repository] (assoc by-id (:id repository) repository)) {})

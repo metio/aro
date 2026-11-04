@@ -55,6 +55,29 @@
     (is (= ["git.example.org:infra.run/tools/fahrplan"] (:mirrors (first (filter #(= "github.com:metio/aro" (:id %)) repositories)))))
     (is (not-any? #(= "git.example.org:infra.run/tools/fahrplan" (:id %)) repositories))))
 
+(deftest the-mirrors-property-comes-before-the-override
+  (let [property {:properties {:mirrors "gitlab.com:metio.wtf/yosql  codeberg.org:metio.wtf/yosql\n"}}]
+    (is (= ["gitlab.com:metio.wtf/yosql" "codeberg.org:metio.wtf/yosql"] (model/mirrors property nil)))
+    (is (= ["gitlab.com:metio.wtf/yosql"] (model/mirrors nil {:mirrors ["gitlab.com:metio.wtf/yosql"]})))
+    (is (= ["gitlab.com:metio.wtf/yosql" "codeberg.org:metio.wtf/yosql" "git.example.org:x/yosql"]
+           (model/mirrors property {:mirrors ["https://codeberg.org/metio.wtf/yosql.git" "git.example.org:x/yosql"]})))))
+
+(deftest a-blank-or-odd-mirrors-property-names-no-mirror
+  (is (= [] (model/mirrors {:properties {:mirrors "  "}} nil)))
+  (is (= [] (model/mirrors {:properties {:release "github"}} {})))
+  (is (= [] (model/mirrors {:properties {:mirrors 42}} nil)))
+  (is (= [] (model/mirrors {:properties {:mirrors {:a "b"}}} nil))))
+
+(deftest a-multi-value-mirrors-property-splits-each-value
+  (is (= ["gitlab.com:a/b" "codeberg.org:a/b" "git.example.org:a/b"]
+         (model/mirrors {:properties {:mirrors ["gitlab.com:a/b codeberg.org:a/b" 7 "git.example.org:a/b"]}} nil))))
+
+(deftest property-mirrors-are-no-repositories-of-their-own
+  (let [inventory (assoc inventory "metio" [(record "github.com" "metio/aro" :properties {:mirrors "git.example.org:infra.run/tools/fahrplan"})])
+        repositories (model/repositories config inventory)]
+    (is (= ["git.example.org:infra.run/tools/fahrplan"] (:mirrors (first (filter #(= "github.com:metio/aro" (:id %)) repositories)))))
+    (is (not-any? #(= "git.example.org:infra.run/tools/fahrplan" (:id %)) repositories))))
+
 (deftest archived-and-forks-are-opt-in
   (let [config (update config :sources (fn [ss] (mapv #(if (= "infra" (:id %)) (assoc % :archived true :forks true) %) ss)))]
     (is (= 5 (count (model/repositories config inventory))))))
