@@ -77,7 +77,7 @@ Overrides go in `:repositories`, keyed by id; repositories the forges do not lis
  :add [{:id "gitlab.com:someone/project" :source "me" :default-branch "master"}]}
 ```
 
-`:dir` is absolute, starts with `~`, or is relative to `:git-root` (default `~/git`). Without one, a clone lives at `<git-root>/<host>/<path>`. `:mirrors` lists the ids of copies of the repository on other forges, such as `["gitlab.com:someone/project" "codeberg.org:someone/project"]`, which `aro mirror` keeps in line with the repository, as described under [Mirrors](#mirrors). A GitHub repository can name its mirrors in a custom property `mirrors` as well, a string of ids separated by whitespace such as `"gitlab.com:someone/project codeberg.org:someone/project"`; its ids come first, followed by those of `:mirrors`, and an id both list counts once. A mirror gets no clone or session of its own, even when a source lists it. `aro update` removes any push URL of `origin`, so `git push` reaches the repository alone. `:session` replaces keys of the generated session, a `nil` value removes one, and `:session false` generates none. `:session-file` moves the session to another path below the airmux directory. Repositories of the same name in different namespaces get the last segment of their namespace in front of the generated `session_name`, such as `charts-grafana` and `dashboards-grafana`, unless `:session` sets one.
+`:dir` is absolute, starts with `~`, or is relative to `:git-root` (default `~/git`). Without one, a clone lives at `<git-root>/<host>/<path>`. `:mirrors` lists the ids of copies of the repository on other forges, such as `["gitlab.com:someone/project" "codeberg.org:someone/project"]`, which `aro mirror` keeps in line with the repository, as described under [Mirror sync](#mirror-sync). A GitHub repository can name its mirrors in a custom property `mirrors` as well, a string of ids separated by whitespace such as `"gitlab.com:someone/project codeberg.org:someone/project"`; its ids come first, followed by those of `:mirrors`, and an id both list counts once. A mirror gets no clone or session of its own, even when a source lists it. `aro update` removes any push URL of `origin`, so `git push` reaches the repository alone. `:session` replaces keys of the generated session, a `nil` value removes one, and `:session false` generates none. `:session-file` moves the session to another path below the airmux directory. Repositories of the same name in different namespaces get the last segment of their namespace in front of the generated `session_name`, such as `charts-grafana` and `dashboards-grafana`, unless `:session` sets one.
 
 ## Groups and custom sessions
 
@@ -120,7 +120,7 @@ With `:push-mirrors true` in the config, `aro update` also syncs the mirrors of 
 
 Skipped branches print `[SKIP]` with the reason. A failed fetch prints `[ERROR]` and makes the command exit non-zero, which suits a systemd timer with `OnFailure=`. Git runs with `GIT_TERMINAL_PROMPT=0` and, unless `GIT_SSH_COMMAND` is set, `ssh -o BatchMode=yes`, so a run without a terminal fails instead of waiting for input.
 
-## Mirrors
+## Mirror sync
 
 `aro mirror` fetches each clone whose repository has mirrors, from `:mirrors` or the custom property `mirrors`, and pushes the commit of origin's default branch to the default branch of every mirror, along with origin's tags. Other branches stay on origin. No push is forced:
 
