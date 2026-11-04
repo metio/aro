@@ -30,7 +30,10 @@ Commands:
   clone [REPO...] [--max N] [--delay SECONDS]
                            Clone the repositories that are missing, one at a time, at most N of them
   update [REPO...] [--jobs N]
-                           Fetch every clone and bring its branches up to date, keeping local changes
+                           Fetch every clone and bring its branches up to date, keeping local changes,
+                           and with :push-mirrors sync the mirrors
+  mirror [REPO...] [--jobs N]
+                           Fetch every clone with :mirrors and push origin's default branch and tags to them
   maintain --schedule hourly|daily|weekly [REPO...] [--jobs N]
                            Run git's maintenance tasks for the schedule in every clone
   prune [REPO...] [--dry-run] [--jobs N]
@@ -44,6 +47,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
 
 (defn- ok [& parts] (println (str "[OK] " (str/join parts))))
 (defn- skipped [& parts] (println (str "[SKIP] " (str/join parts))))
+(defn- warn [& parts] (println (str "[WARN] " (str/join parts))))
 (defn- error [& parts] (binding [*out* *err*] (println (str "[ERROR] " (str/join parts)))))
 
 (defn- run-hook! [config event replacements]
@@ -158,6 +162,13 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
               :skipped (skipped id " (" checkout "): " message)
               :failed (error id " (" checkout "): " message)))))
 
+(defn- report-mirrors [{:keys [id] :as repository} {:keys [mirrors] :as result}]
+  (report-update repository result)
+  (doseq [{:keys [status message]} mirrors]
+    (case status
+      :updated (ok id ": " message)
+      :warned (warn id ": " message))))
+
 (defn- report-maintain [{:keys [id]} {:keys [status message]}]
   (case status
     :missing nil
@@ -194,6 +205,35 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                           (finally (.release permits)))))
                     repositories)]
     (not-any? failed? (mapv deref tasks))))
+
+(defn- with-mirrors
+  "`update` followed, once it is done, by the sync of the mirrors, whose
+  results go under :mirrors."
+  [update]
+  (fn [repository]
+    (let [result (update repository)]
+      (if (= :done (:status result))
+        (assoc result :mirrors (:mirrors (git/sync-mirrors! repository)))
+        result))))
+
+(defn update-all!
+  "Updates each of `repositories`, at most `jobs` at a time, and syncs their
+  mirrors when the config sets :push-mirrors. Returns whether none failed."
+  [config repositories jobs]
+  (run-all! repositories jobs (cond-> git/update! (:push-mirrors config) with-mirrors) report-mirrors))
+
+(defn mirror-all!
+  "Fetches each of `repositories` that has :mirrors and pushes origin's
+  default branch and tags to them, at most `jobs` at a time. A mirror that
+  cannot be synced is a warning; only a failed fetch fails. Returns whether
+  none failed."
+  [repositories jobs]
+  (run-all! (filter (comp seq :mirrors) repositories) jobs
+            (with-mirrors (fn [{:keys [dir]}]
+                            (if (git/layout-on-disk dir)
+                              (or (git/fetch! dir) {:status :done})
+                              {:status :missing :message "not cloned"})))
+            report-mirrors))
 
 (defn- maintain-all! [repositories {:keys [schedule jobs]}]
   (when-not (git/schedules schedule)
@@ -279,7 +319,8 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                         "generate" (generate! config opts)
                         "compare" (compare! config opts)
                         "clone" (clone-all! (model/find-repositories (repositories config) args) (:max opts) (or (:delay opts) (:delay config)))
-                        "update" (run-all! (model/find-repositories (repositories config) args) (:jobs opts) git/update! report-update)
+                        "update" (update-all! config (model/find-repositories (repositories config) args) (:jobs opts))
+                        "mirror" (mirror-all! (model/find-repositories (repositories config) args) (:jobs opts))
                         "maintain" (maintain-all! (model/find-repositories (repositories config) args) opts)
                         "prune" (prune-all! (model/find-repositories (repositories config) args) opts)
                         "orphans" (orphans! config (repositories config) (:delete opts))

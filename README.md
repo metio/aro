@@ -16,6 +16,7 @@ aro generate [--out DIR]                    # write the sessions and ttt workspa
 aro compare [--toml FILE]...                # compare with the files on disk, print suggested config
 aro clone [REPO...] [--max N]               # clone what is missing, one at a time, at most N
 aro update [REPO...] [--jobs N]             # fetch and update every clone
+aro mirror [REPO...] [--jobs N]             # fetch and push origin's default branch and tags to the mirrors
 aro maintain --schedule S [REPO...]         # run git's maintenance tasks for hourly, daily or weekly
 aro prune [REPO...] [--dry-run]             # delete local branches origin's default branch holds
 aro orphans [--delete]                      # list clones no repository names, remove those without local work
@@ -76,7 +77,7 @@ Overrides go in `:repositories`, keyed by id; repositories the forges do not lis
  :add [{:id "gitlab.com:someone/project" :source "me" :default-branch "master"}]}
 ```
 
-`:dir` is absolute, starts with `~`, or is relative to `:git-root` (default `~/git`). Without one, a clone lives at `<git-root>/<host>/<path>`. `:mirrors` lists the ids of copies of the repository on other forges, such as `["gitlab.com:someone/project" "codeberg.org:someone/project"]`: `aro clone` and `aro update` set `remote.origin.pushurl` to the repository and each mirror, so one `git push` reaches all of them, while fetches still come from the repository alone. A mirror gets no clone or session of its own, even when a source lists it. Without `:mirrors`, aro removes any push URL of `origin`. `:session` replaces keys of the generated session, a `nil` value removes one, and `:session false` generates none. `:session-file` moves the session to another path below the airmux directory. Repositories of the same name in different namespaces get the last segment of their namespace in front of the generated `session_name`, such as `charts-grafana` and `dashboards-grafana`, unless `:session` sets one.
+`:dir` is absolute, starts with `~`, or is relative to `:git-root` (default `~/git`). Without one, a clone lives at `<git-root>/<host>/<path>`. `:mirrors` lists the ids of copies of the repository on other forges, such as `["gitlab.com:someone/project" "codeberg.org:someone/project"]`, which `aro mirror` keeps in line with the repository, as described under [Mirrors](#mirrors). A mirror gets no clone or session of its own, even when a source lists it. `aro update` removes any push URL of `origin`, so `git push` reaches the repository alone. `:session` replaces keys of the generated session, a `nil` value removes one, and `:session false` generates none. `:session-file` moves the session to another path below the airmux directory. Repositories of the same name in different namespaces get the last segment of their namespace in front of the generated `session_name`, such as `charts-grafana` and `dashboards-grafana`, unless `:session` sets one.
 
 ## Groups and custom sessions
 
@@ -115,7 +116,25 @@ The plain layout is an ordinary clone. The worktrees layout is a bare repository
 - An update that starts tracking a file the clone holds as an ignored file, such as a local `.env`, is skipped, since it would overwrite that file.
 - A detached HEAD, a merge or rebase in progress, a branch without upstream, and a branch whose upstream is gone are skipped.
 
+With `:push-mirrors true` in the config, `aro update` also syncs the mirrors of each repository after fetching it, as `aro mirror` does.
+
 Skipped branches print `[SKIP]` with the reason. A failed fetch prints `[ERROR]` and makes the command exit non-zero, which suits a systemd timer with `OnFailure=`. Git runs with `GIT_TERMINAL_PROMPT=0` and, unless `GIT_SSH_COMMAND` is set, `ssh -o BatchMode=yes`, so a run without a terminal fails instead of waiting for input.
+
+## Mirrors
+
+`aro mirror` fetches each clone whose repository has `:mirrors` and pushes the commit of origin's default branch to the default branch of every mirror, along with origin's tags. Other branches stay on origin. No push is forced:
+
+- A mirror without the branch gets it, and one whose branch is behind origin's is fast-forwarded.
+- A mirror whose branch is ahead of origin's or has diverged from it is left as it is and reported with `[WARN]`, naming the repository, the mirror and both commits.
+- Tags the mirror lacks are pushed, and a tag the mirror holds at another object is left as it is and reported with `[WARN]`.
+- A mirror that cannot be reached or rejects the push is reported with `[WARN]`, and the other mirrors and repositories are synced all the same.
+
+Warnings leave the exit code at zero; a failed fetch of origin prints `[ERROR]` and makes the command exit non-zero. The sync pushes from the clone's own objects, so commits that reach origin's default branch on the forge, through a merge queue, the web interface or a bot, reach the mirrors on the next run. `aro update` syncs the mirrors only with `:push-mirrors true` in the config (default `false`), so that one machine pushes to them while the others only fetch:
+
+```clojure
+{:push-mirrors true
+ :repositories {"github.com:metio/ilo" {:mirrors ["gitlab.com:metio.wtf/ilo"]}}}
+```
 
 ## Maintenance and pruning
 

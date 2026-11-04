@@ -56,20 +56,13 @@
 (defn clone-url [{:keys [url host path]}]
   (or url (str host ":" path)))
 
-(defn push-urls
-  "The push URLs of `repository`: its own and those of its mirrors, or none
-  without mirrors, so that a push goes to the fetch URL alone."
-  [{:keys [mirrors] :as repository}]
-  (when (seq mirrors)
-    (into [(clone-url repository)] mirrors)))
-
-(defn- configure-push! [dir repository]
-  (let [gd (git-dir dir)
-        wanted (vec (push-urls repository))]
-    (when (not= wanted (vec (lines (:out (git "--git-dir" gd "config" "--get-all" "remote.origin.pushurl")))))
-      (git "--git-dir" gd "config" "--unset-all" "remote.origin.pushurl")
-      (doseq [url wanted]
-        (git! "--git-dir" gd "config" "--add" "remote.origin.pushurl" url)))))
+(defn- remove-push-urls!
+  "Removes the push URLs of origin, so that a push goes to its fetch URL
+  alone. Mirrors receive their commits from `sync-mirrors!`."
+  [dir]
+  (let [gd (git-dir dir)]
+    (when (seq (lines (:out (git "--git-dir" gd "config" "--get-all" "remote.origin.pushurl"))))
+      (git! "--git-dir" gd "config" "--unset-all" "remote.origin.pushurl"))))
 
 (defn- ensure-empty! [dir]
   (when (and (fs/exists? dir) (seq (fs/list-dir dir)))
@@ -101,8 +94,7 @@
         (git! "--git-dir" gd "update-ref" "-d" ref))
       (add-default! gd dir branch)
       (add-development! gd dir branch))
-    (git! "clone" "--quiet" "--branch" branch (clone-url repository) dir))
-  (configure-push! dir repository))
+    (git! "clone" "--quiet" "--branch" branch (clone-url repository) dir)))
 
 (defn clone!
   "Clones `repository` into its :dir in its :layout. Returns :cloned, or
@@ -311,22 +303,178 @@
                     (skip (str "its uncommitted changes to " (str/join ", " (sort (filter incoming changed)))
                                " conflict with " target))))))))))))
 
+(defn fetch!
+  "Fetches origin into the clone at `dir`. Returns nil, or {:status :failed
+  :message} when the fetch fails."
+  [dir]
+  (let [{:keys [exit err]} (git "--git-dir" (git-dir dir) "fetch" "--prune" "--quiet" "--no-recurse-submodules" "origin")]
+    (when-not (zero? exit)
+      {:status :failed :message (str "fetch failed: " (str/trim err))})))
+
 (defn update!
-  "Points the push URLs of `repository` at it and its mirrors, fetches it and
-  syncs each of its checkouts. Returns
+  "Removes the push URLs of origin in the clone of `repository`, fetches it
+  and syncs each of its checkouts. Returns
   {:status :missing|:failed|:done :message :checkouts [result]}."
-  [{:keys [dir branch] :as repository}]
+  [{:keys [dir branch]}]
   (if-let [layout (layout-on-disk dir)]
-    (let [_ (configure-push! dir repository)
-          fetch (git "--git-dir" (git-dir dir) "fetch" "--prune" "--quiet" "--no-recurse-submodules" "origin")]
-      (if-not (zero? (:exit fetch))
-        {:status :failed :message (str "fetch failed: " (str/trim (:err fetch)))}
-        {:status :done
-         :checkouts (vec (for [checkout (if (= :plain layout) [(str dir)] (map :path (worktrees dir)))]
-                           (assoc (try (sync-checkout! checkout branch)
-                                       (catch Exception e {:status :failed :message (ex-message e)}))
-                                  :checkout checkout)))}))
+    (do (remove-push-urls! dir)
+        (or (fetch! dir)
+            {:status :done
+             :checkouts (vec (for [checkout (if (= :plain layout) [(str dir)] (map :path (worktrees dir)))]
+                               (assoc (try (sync-checkout! checkout branch)
+                                           (catch Exception e {:status :failed :message (ex-message e)}))
+                                      :checkout checkout)))}))
     {:status :missing :message "not cloned"}))
+
+(defn- remote-refs
+  "The refs of `url` matching `patterns`: {:refs {ref sha}}, or {:failed
+  message} when `url` cannot be read."
+  [gd url & patterns]
+  (let [{:keys [exit out err]} (apply git "--git-dir" gd "ls-remote" "--refs" url patterns)]
+    (if (zero? exit)
+      {:refs (into {} (for [line (lines out)] (vec (reverse (str/split line #"\s+" 2)))))}
+      {:failed (str/trim err)})))
+
+(defn- object? [gd sha]
+  (zero? (:exit (git "--git-dir" gd "cat-file" "-e" sha))))
+
+(defn- ancestor? [gd a b]
+  (zero? (:exit (git "--git-dir" gd "merge-base" "--is-ancestor" a b))))
+
+(defn branch-state
+  "How the commit `mirror` of a mirror's branch relates to `origin`, the
+  commit of origin's: :missing without one, else :equal, :behind, :ahead or
+  :diverged. Both commits must be in the clone at `gd`."
+  [gd origin mirror]
+  (cond
+    (nil? mirror) :missing
+    (= origin mirror) :equal
+    (ancestor? gd mirror origin) :behind
+    (ancestor? gd origin mirror) :ahead
+    :else :diverged))
+
+(defn tag-plan
+  "The tags of `origin-tags` to push to a mirror holding `mirror-tags`, both
+  {ref sha}: {:push {ref sha}} for those the mirror lacks, and :differ
+  [{:ref :origin :mirror}] for those it holds at another object, which are
+  never overwritten."
+  [origin-tags mirror-tags]
+  {:push (into (sorted-map) (remove (comp (set (keys mirror-tags)) key)) origin-tags)
+   :differ (vec (for [[ref sha] (sort origin-tags)
+                      :let [theirs (get mirror-tags ref)]
+                      :when (and theirs (not= sha theirs))]
+                  {:ref ref :origin sha :mirror theirs}))})
+
+(defn- fetch-mirror-branch!
+  "Fetches `branch` of `mirror` into the clone at `gd` through a private
+  ref, which is deleted again so that no ref keeps the mirror's commits.
+  Returns {:sha} of the fetched commit, or {:failed message}."
+  [gd n mirror branch]
+  (let [private (str "refs/aro/mirrors/" n "/" branch)
+        {:keys [exit err]} (git "--git-dir" gd "fetch" "--quiet" "--no-tags" "--no-recurse-submodules" "--no-write-fetch-head"
+                                mirror (str "+refs/heads/" branch ":" private))]
+    (if (zero? exit)
+      (let [sha (git! "--git-dir" gd "rev-parse" private)]
+        (git! "--git-dir" gd "update-ref" "-d" private)
+        {:sha sha})
+      {:failed (str/trim err)})))
+
+(defn- push-refs!
+  "Pushes `refs`, {ref sha}, to `url` without forcing any of them and
+  without running the clone's hooks. Returns nil, or the error of git."
+  [gd url refs]
+  (when (seq refs)
+    (let [{:keys [exit err]} (apply git "--git-dir" gd "push" "--quiet" "--no-verify" url
+                                    (for [[ref sha] refs] (str sha ":" ref)))]
+      (when-not (zero? exit) (str/trim err)))))
+
+(defn- short-ref [ref]
+  (str/replace ref #"^refs/(heads|tags)/" ""))
+
+(defn- sync-branch!
+  "Brings `branch` of `mirror` to `origin` by creating or fast-forwarding it,
+  and leaves a mirror that is ahead or has diverged as it is."
+  [gd n mirror branch origin mirror-sha]
+  (let [{:keys [sha failed]} (if (or (nil? mirror-sha) (object? gd mirror-sha))
+                               {:sha mirror-sha}
+                               (fetch-mirror-branch! gd n mirror branch))
+        warn (fn [& parts] {:status :warned :message (str/join parts)})
+        state (when-not failed (branch-state gd origin sha))
+        pushed (fn [message]
+                 (if-let [err (push-refs! gd mirror {(str "refs/heads/" branch) origin})]
+                   (warn "pushing " branch " to " mirror " failed: " err)
+                   {:status :updated :message message}))]
+    (case state
+      nil (warn "fetching " branch " of " mirror " failed: " failed)
+      :equal nil
+      :missing (pushed (str "created " branch " on " mirror " at " origin))
+      :behind (pushed (str "fast-forwarded " branch " on " mirror " from " sha " to " origin))
+      :ahead (warn branch " on " mirror " left as it is: its " sha " is ahead of origin's " origin)
+      :diverged (warn branch " on " mirror " left as it is: its " sha " and origin's " origin " have diverged"))))
+
+(defn- sync-tags!
+  "Pushes the tags of `origin-tags` that `mirror-tags` lacks to `mirror` and
+  reports those it holds at another object."
+  [gd mirror origin-tags mirror-tags]
+  (let [{:keys [push differ]} (tag-plan origin-tags mirror-tags)
+        err (push-refs! gd mirror push)]
+    (concat
+     (cond
+       err [{:status :warned :message (str "pushing " (count push) " tags to " mirror " failed: " err)}]
+       (seq push) [{:status :updated :message (str "pushed " (count push) (if (= 1 (count push)) " tag" " tags") " to " mirror)}])
+     (for [d differ]
+       {:status :warned
+        :message (str "tag " (short-ref (:ref d)) " on " mirror " left as it is: it points at " (:mirror d) ", origin's at " (:origin d))}))))
+
+(defn- sync-mirror!
+  "Brings `mirror`, the `n`th mirror of the clone at `gd`, up to origin's
+  `branch` at `origin` and its `origin-tags`. Returns [{:status
+  :updated|:warned :message :mirror}]."
+  [gd n mirror branch origin origin-tags]
+  (let [{:keys [refs failed]} (remote-refs gd mirror (str "refs/heads/" branch) "refs/tags/*")]
+    (mapv #(assoc % :mirror mirror)
+          (if failed
+            [{:status :warned :message (str mirror " cannot be reached: " failed)}]
+            (let [mirror-tags (into {} (filter (comp #(str/starts-with? % "refs/tags/") key)) refs)]
+              (concat (remove nil? [(sync-branch! gd n mirror branch origin (get refs (str "refs/heads/" branch)))])
+                      (sync-tags! gd mirror origin-tags mirror-tags)))))))
+
+(defn- origin-tags!
+  "The tags of origin, {ref sha}, with their objects fetched into the clone
+  at `gd` where it lacks them, or {:failed message}."
+  [gd]
+  (let [{:keys [refs failed] :as result} (remote-refs gd "origin" "refs/tags/*")]
+    (if failed
+      result
+      (let [missing (remove (partial object? gd) (distinct (vals refs)))
+            {:keys [exit err]} (if (seq missing)
+                                 (apply git "--git-dir" gd "fetch" "--quiet" "--no-tags" "--no-recurse-submodules" "--no-write-fetch-head" "origin" missing)
+                                 {:exit 0})]
+        (if (zero? exit) {:refs refs} {:failed (str "fetching the tags of origin failed: " (str/trim err))})))))
+
+(defn sync-mirrors!
+  "Pushes the commit origin's default branch is at in the clone of
+  `repository`, and origin's tags, to each of its :mirrors. No push is
+  forced: a mirror whose branch is ahead or has diverged, or that holds a
+  tag at another object, keeps it and is warned about, as is a mirror that
+  cannot be reached or rejects the push. Returns {:status :missing|:done
+  :message :mirrors [{:status :updated|:warned :message :mirror}]}."
+  [{:keys [dir branch mirrors]}]
+  (cond
+    (empty? mirrors) {:status :done :mirrors []}
+    (not (layout-on-disk dir)) {:status :missing :message "not cloned"}
+    :else
+    (let [gd (git-dir dir)
+          origin (str/trim (:out (git "--git-dir" gd "rev-parse" "--verify" "--quiet" (str "refs/remotes/origin/" branch "^{commit}"))))
+          warned (fn [message] {:status :done :mirrors [{:status :warned :message message}]})]
+      (if (str/blank? origin)
+        (warned (str "origin/" branch " does not exist, so no mirror is synced"))
+        (let [{:keys [refs failed]} (origin-tags! gd)]
+          (if failed
+            (warned failed)
+            {:status :done
+             :mirrors (vec (mapcat (fn [n mirror] (sync-mirror! gd n mirror branch origin refs))
+                                   (range) mirrors))}))))))
 
 (def schedules #{"hourly" "daily" "weekly"})
 

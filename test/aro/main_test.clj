@@ -3,10 +3,11 @@
 
 (ns aro.main-test
   (:require [aro.inventory :as inventory]
+            [aro.git :as git]
             [aro.main :as main]
             [aro.support :as s :refer [path]]
             [babashka.fs :as fs]
-            [clojure.test :refer [deftest is use-fixtures]]))
+            [clojure.test :refer [deftest is testing use-fixtures]]))
 
 (use-fixtures :each s/with-root)
 
@@ -61,3 +62,40 @@
   (is (= {:args ["prune" "x"] :opts {:dry-run true :jobs 4}} (main/parse ["prune" "--dry-run" "x"])))
   (is (= {:args ["maintain"] :opts {:schedule "daily" :jobs 4}} (main/parse ["maintain" "--schedule" "daily"])))
   (is (= {:args ["clone" "--odd"] :opts {:help true :jobs 4}} (main/parse ["clone" "-h" "--" "--odd"]))))
+
+(defn- with-mirror [name]
+  (let [upstream (s/upstream! name {"README" "hello\n"})
+        mirror (path (str name "-mirror.git"))]
+    (s/git s/*root* "init" "--quiet" "--bare" mirror)
+    {:upstream upstream
+     :mirror mirror
+     :repository {:id name :url (:url upstream) :dir (path "clones" name) :layout :plain :branch "main" :mirrors [mirror]}}))
+
+(defn- branches-of [bare]
+  (s/git bare "for-each-ref" "--format=%(refname)" "refs/heads"))
+
+(deftest updating-syncs-mirrors-only-with-push-mirrors
+  (let [{:keys [upstream mirror repository]} (with-mirror "app")]
+    (git/clone! repository)
+    (is (main/update-all! {} [repository] 1))
+    (is (= "" (branches-of mirror)))
+    (is (main/update-all! {:push-mirrors false} [repository] 1))
+    (is (= "" (branches-of mirror)))
+    (s/push! upstream "second" {"README" "two\n"})
+    (is (main/update-all! {:push-mirrors true} [repository] 1))
+    (is (= (s/git (:url upstream) "rev-parse" "main") (s/git mirror "rev-parse" "main")))))
+
+(deftest the-mirror-command-fetches-and-syncs
+  (let [{:keys [upstream mirror repository]} (with-mirror "app")
+        plain {:id "plain" :url (:url (s/upstream! "plain" {"README" "x\n"})) :dir (path "clones" "plain") :layout :plain :branch "main" :mirrors []}
+        missing (assoc repository :id "missing" :dir (path "clones" "missing"))]
+    (git/clone! repository)
+    (git/clone! plain)
+    (s/push! upstream "second" {"README" "two\n"})
+    (is (main/mirror-all! [repository plain missing] 2))
+    (is (= (s/git (:url upstream) "rev-parse" "main") (s/git mirror "rev-parse" "main")))
+    (testing "a mirror that cannot be synced is a warning"
+      (is (main/mirror-all! [(update repository :mirrors conj (path "nowhere.git"))] 1)))
+    (testing "a failed fetch fails"
+      (s/git (path "clones" "plain") "remote" "set-url" "origin" (path "gone.git"))
+      (is (false? (main/mirror-all! [(assoc repository :dir (path "clones" "plain"))] 1))))))

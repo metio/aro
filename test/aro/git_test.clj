@@ -38,26 +38,150 @@
       (is (thrown? Exception (s/git (path "clones" "app" "development") "rev-parse" "--abbrev-ref" "@{upstream}"))))
     (is (= "hello\n" (slurp (path "clones" "app" "development" "README"))))))
 
-(defn- push-urls [dir]
-  (str/split-lines (s/git dir "config" "--get-all" "remote.origin.pushurl")))
-
-(deftest a-push-reaches-the-repository-and-its-mirrors
+(deftest updating-removes-the-push-urls-of-origin
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
-        mirror (path "mirror.git")
-        _ (s/git s/*root* "init" "--quiet" "--bare" mirror)
-        r (assoc (repository upstream :plain) :mirrors [mirror])
+        r (assoc (repository upstream :plain) :mirrors [(path "mirror.git")])
         dir (path "clones" "app")]
     (git/clone! r)
-    (is (= [(:url upstream) mirror] (push-urls dir)))
-    (spit (path "clones" "app" "README") "changed\n")
-    (s/git dir "commit" "--quiet" "--all" "--message" "change")
-    (s/git dir "push" "--quiet" "origin" "main")
-    (is (= (s/git dir "rev-parse" "HEAD")
-           (s/git (:url upstream) "rev-parse" "main")
-           (s/git mirror "rev-parse" "main")))
-    (testing "updating follows the mirrors of the config"
-      (git/update! (assoc r :mirrors []))
-      (is (thrown? Exception (push-urls dir))))))
+    (s/git dir "config" "--add" "remote.origin.pushurl" (:url upstream))
+    (s/git dir "config" "--add" "remote.origin.pushurl" (path "mirror.git"))
+    (git/update! r)
+    (is (thrown? Exception (s/git dir "config" "--get-all" "remote.origin.pushurl")))
+    (is (= (:url upstream) (s/git dir "remote" "get-url" "--push" "origin")))))
+
+(defn- bare! [name]
+  (let [dir (path name)]
+    (s/git s/*root* "init" "--quiet" "--bare" dir)
+    dir))
+
+(defn- head-of [bare ref]
+  (s/git bare "rev-parse" ref))
+
+(defn- mirrored [upstream layout & mirrors]
+  (let [r (assoc (repository upstream layout) :mirrors (vec mirrors))]
+    (git/clone! r)
+    r))
+
+(defn- mirror-statuses [result]
+  (mapv :status (:mirrors result)))
+
+(deftest a-mirror-without-the-branch-gets-it
+  (doseq [layout [:plain :worktrees]]
+    (let [upstream (s/upstream! (name layout) {"README" "hello\n"})
+          mirror (bare! (str (name layout) "-mirror.git"))
+          r (assoc (mirrored upstream layout mirror) :dir (path "clones" "app"))
+          result (git/sync-mirrors! r)]
+      (is (= [:updated] (mirror-statuses result)))
+      (is (str/includes? (:message (first (:mirrors result))) "created main"))
+      (is (= (head-of (:url upstream) "main") (head-of mirror "main")))
+      (fs/delete-tree (path "clones" "app")))))
+
+(deftest a-mirror-behind-origin-is-fast-forwarded
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        mirror (bare! "mirror.git")
+        r (mirrored upstream :plain mirror)]
+    (git/sync-mirrors! r)
+    (let [before (head-of mirror "main")]
+      (s/push! upstream "second" {"README" "two\n"})
+      (git/update! r)
+      (let [result (git/sync-mirrors! r)]
+        (is (= [:updated] (mirror-statuses result)))
+        (is (str/includes? (:message (first (:mirrors result))) (str "from " before " to " (head-of (:url upstream) "main"))))
+        (is (= (head-of (:url upstream) "main") (head-of mirror "main")))))))
+
+(deftest a-mirror-equal-to-origin-is-left-alone
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (mirrored upstream :plain (bare! "mirror.git"))]
+    (git/sync-mirrors! r)
+    (is (= {:status :done :mirrors []} (git/sync-mirrors! r)))))
+
+(defn- commit-on-mirror! [mirror base message]
+  (let [work (path (str "mirror-work-" message))]
+    (s/git s/*root* "clone" "--quiet" mirror work)
+    (when base (s/git work "reset" "--quiet" "--hard" base))
+    (s/commit! work message {"README" (str message "\n")})
+    (s/git work "push" "--quiet" "--force" "origin" "HEAD:main")))
+
+(deftest a-mirror-ahead-of-origin-is-left-alone-and-reported
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        mirror (bare! "mirror.git")
+        r (mirrored upstream :plain mirror)
+        origin (head-of (:url upstream) "main")]
+    (git/sync-mirrors! r)
+    (commit-on-mirror! mirror nil "extra")
+    (let [ahead (head-of mirror "main")
+          [result] (:mirrors (git/sync-mirrors! r))]
+      (is (= :warned (:status result)))
+      (is (str/includes? (:message result) (str "its " ahead " is ahead of origin's " origin)))
+      (is (= mirror (:mirror result)))
+      (is (= ahead (head-of mirror "main")))
+      (is (= "" (s/git (path "clones" "app") "for-each-ref" "refs/aro"))))))
+
+(deftest a-mirror-diverged-from-origin-is-left-alone-and-reported
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        mirror (bare! "mirror.git")
+        r (mirrored upstream :plain mirror)]
+    (git/sync-mirrors! r)
+    (commit-on-mirror! mirror nil "theirs")
+    (s/push! upstream "ours" {"src" "x\n"})
+    (git/update! r)
+    (let [theirs (head-of mirror "main")
+          [result] (:mirrors (git/sync-mirrors! r))]
+      (is (= :warned (:status result)))
+      (is (str/includes? (:message result) "have diverged"))
+      (is (str/includes? (:message result) theirs))
+      (is (str/includes? (:message result) (head-of (:url upstream) "main")))
+      (is (= theirs (head-of mirror "main"))))))
+
+(deftest an-unreachable-mirror-is-reported-and-the-others-synced
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        good (bare! "mirror.git")
+        r (mirrored upstream :plain (path "nowhere.git") good)
+        result (git/sync-mirrors! r)]
+    (is (= :done (:status result)))
+    (is (= [:warned :updated] (mirror-statuses result)))
+    (is (str/includes? (:message (first (:mirrors result))) "cannot be reached"))
+    (is (= (head-of (:url upstream) "main") (head-of good "main")))))
+
+(deftest a-rejected-push-is-reported
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        mirror (bare! "mirror.git")
+        hook (path "mirror.git" "hooks" "pre-receive")
+        r (mirrored upstream :plain mirror)]
+    (spit hook "#!/bin/sh\nexit 1\n")
+    (.setExecutable (fs/file hook) true)
+    (let [[result] (:mirrors (git/sync-mirrors! r))]
+      (is (= :warned (:status result)))
+      (is (str/includes? (:message result) "pushing main to")))))
+
+(deftest tags-reach-the-mirror-and-differing-ones-are-reported
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        work (:work upstream)
+        mirror (bare! "mirror.git")
+        r (mirrored upstream :plain mirror)]
+    (s/git work "tag" "--annotate" "--message" "one" "v1")
+    (s/git work "tag" "v2")
+    (s/push! upstream "second" {"README" "two\n"})
+    (s/git work "tag" "v3" "HEAD")
+    (s/git work "push" "--quiet" "origin" "v1" "v2" "v3")
+    (commit-on-mirror! mirror nil "other")
+    (s/git (path "mirror-work-other") "tag" "v2")
+    (s/git (path "mirror-work-other") "push" "--quiet" "origin" "v2")
+    (s/git mirror "update-ref" "-d" "refs/heads/main")
+    (let [mirror-v2 (head-of mirror "refs/tags/v2")
+          result (git/sync-mirrors! r)
+          messages (map :message (:mirrors result))]
+      (is (= [:updated :updated :warned] (mirror-statuses result)))
+      (is (some #(str/includes? % "pushed 2 tags") messages))
+      (is (some #(str/includes? % (str "tag v2 on " mirror " left as it is: it points at " mirror-v2)) messages))
+      (is (= (head-of (:url upstream) "refs/tags/v1") (head-of mirror "refs/tags/v1")))
+      (is (= "tag" (s/git mirror "cat-file" "-t" "refs/tags/v1")))
+      (is (= (head-of (:url upstream) "refs/tags/v3") (head-of mirror "refs/tags/v3")))
+      (is (= mirror-v2 (head-of mirror "refs/tags/v2"))))))
+
+(deftest a-repository-without-mirrors-syncs-nothing
+  (is (= {:status :done :mirrors []} (git/sync-mirrors! {:dir (path "nowhere") :branch "main" :mirrors []})))
+  (is (= :missing (:status (git/sync-mirrors! {:dir (path "nowhere") :branch "main" :mirrors [(path "m.git")]})))))
 
 (deftest a-failed-clone-leaves-nothing-behind
   (let [upstream (s/upstream! "app" {"README" "hello\n"})]
@@ -396,6 +520,4 @@
     (is (= #{"main" "development" "feature"} (branches gd)))))
 
 (deftest repositories-clone-over-ssh
-  (is (= "github.com:metio/aro" (git/clone-url {:host "github.com" :path "metio/aro"})))
-  (is (= ["github.com:metio/ilo" "gitlab.com:metio.wtf/ilo"]
-         (git/push-urls {:host "github.com" :path "metio/ilo" :mirrors ["gitlab.com:metio.wtf/ilo"]}))))
+  (is (= "github.com:metio/aro" (git/clone-url {:host "github.com" :path "metio/aro"}))))

@@ -32,6 +32,7 @@
    :ttt-dir (str (fs/path (env-dir "XDG_DATA_HOME" ".local/share") "ttt"))
    :inventory (str (fs/path (env-dir "XDG_STATE_HOME" ".local/state") "aro" "inventory.edn"))
    :layout :plain
+   :push-mirrors false
    :hooks {}})
 
 (defn expand-home [s]
