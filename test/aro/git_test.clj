@@ -509,6 +509,17 @@
       (is (= ["merged"] (:deleted result)))
       (is (= #{"main" "feat"} (branches dir))))))
 
+(deftest pruning-deletes-merged-branches-of-worktrees-whose-directory-is-gone
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")
+        gone (path "elsewhere" "app-merged")]
+    (git/clone! r)
+    (s/git dir "worktree" "add" "--quiet" "-b" "merged" gone)
+    (fs/delete-tree gone)
+    (is (= ["merged"] (:deleted (git/prune-branches! r false))))
+    (is (= #{"main"} (branches dir)))))
+
 (deftest pruning-keeps-the-branches-of-every-worktree
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
         r (repository upstream :worktrees)

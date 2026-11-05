@@ -503,13 +503,16 @@
 (defn prune-branches!
   "Deletes the local branches of the clone of `repository` whose commits the
   default branch of origin holds, keeping the default branch, development
-  and every branch a checkout has checked out. A branch whose upstream is
-  gone but that holds commits origin lacks is kept and reported. With
-  `dry-run`, nothing is deleted. Returns {:status :missing|:failed|:done
+  and every branch a checkout has checked out. A worktree whose directory is
+  gone no longer keeps its branch: git refuses to delete a branch any
+  registered worktree holds, so those registrations are pruned first. A
+  branch whose upstream is gone but that holds commits origin lacks is kept
+  and reported. With `dry-run`, nothing is deleted. Returns {:status :missing|:failed|:done
   :message :deleted [branch] :kept [{:branch :message}]}."
   [{:keys [dir branch]} dry-run]
   (if (layout-on-disk dir)
     (let [gd (git-dir dir)
+          _ (when-not dry-run (git! "--git-dir" gd "worktree" "prune"))
           default branch
           target (str "refs/remotes/origin/" default)
           protected (into #{default development} (checked-out dir))]
