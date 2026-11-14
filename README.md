@@ -19,6 +19,7 @@ aro update [REPO...] [--jobs N]             # fetch and update every clone
 aro mirror [REPO...] [--jobs N]             # fetch and push origin's default branch and tags to the mirrors
 aro maintain --schedule S [REPO...]         # run git's maintenance tasks for hourly, daily or weekly
 aro prune [REPO...] [--dry-run]             # delete local branches origin's default branch holds
+aro prune [REPO...] --switch-merged         # first move plain clones off merged branches
 aro orphans [--delete]                      # list clones no repository names, remove those without local work
 aro layout REPO worktrees|plain [--keep B]  # switch a clone between the layouts
 ```
@@ -143,6 +144,8 @@ A custom property `mirrors` on the repository, holding `gitlab.com:metio.wtf/ilo
 `aro maintain --schedule hourly|daily|weekly` runs `git maintenance run` for that schedule in every clone, with the tasks of git's incremental strategy except `prefetch`, which `aro update` makes redundant: `commit-graph` hourly, `loose-objects` and `incremental-repack` daily, and `pack-refs` weekly. Without a strategy, a scheduled run has no tasks, and aro sets it for the run instead of in each clone's config. Clones that do not exist yet are skipped, so the list of clones comes from the config and the inventory alone. A templated systemd service running `aro maintain --schedule=%i`, started by a timer per schedule, keeps every clone maintained.
 
 `aro prune` deletes the local branches whose commits the default branch of origin already holds, such as branches merged upstream and branches never committed to. The default branch, `development` and every branch a checkout has checked out stay. A branch whose upstream is gone but that holds commits origin lacks, such as one deleted after a squash merge, stays too and is reported with `[SKIP]`. `--dry-run` lists what would be deleted.
+
+`aro prune --switch-merged` also moves a plain clone off the branch it has checked out once origin has merged that branch: it fast-forwards the default branch to origin's, checks it out, and then deletes the merged branch with the others. A branch counts as merged when the default branch of origin holds its tip and either a merge commit brought the tip in, which puts it off the first-parent history of the default branch, or its upstream is gone. A branch just started from the default branch therefore stays. The clone stays on its branch when it has uncommitted changes to tracked files, when the local default branch holds commits origin lacks, when another worktree has the default branch checked out, or when the switch would overwrite ignored files; each case is reported with `[SKIP]`. Untracked files carry over to the default branch. Switching branches changes the files under an editor or a running build, so the option belongs on runs you start yourself, not on a timer. The worktrees layout keeps each branch in a worktree of its own and is left alone.
 
 ## Generating and comparing
 

@@ -36,8 +36,9 @@ Commands:
                            Fetch every clone with :mirrors and push origin's default branch and tags to them
   maintain --schedule hourly|daily|weekly [REPO...] [--jobs N]
                            Run git's maintenance tasks for the schedule in every clone
-  prune [REPO...] [--dry-run] [--jobs N]
-                           Delete local branches whose commits the default branch of origin holds
+  prune [REPO...] [--dry-run] [--switch-merged] [--jobs N]
+                           Delete local branches whose commits the default branch of origin holds,
+                           and with --switch-merged move plain clones off merged branches first
   orphans [--delete]       List the clones below the git root that no repository names, and with --delete
                            remove those without local work
   layout REPO worktrees|plain [--keep BRANCH]
@@ -175,11 +176,15 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
     :failed (error id ": " message)
     :done nil))
 
-(defn- report-prune [{:keys [id]} {:keys [status message deleted kept]} dry-run]
+(defn- report-prune [{:keys [id]} {:keys [status message switch deleted kept]} dry-run]
   (case status
     :missing nil
     :failed (error id ": " message)
-    :done (do (doseq [branch deleted]
+    :done (do (case (:status switch)
+                :switched (ok id ": " (:message switch))
+                :skipped (skipped id ": " (:message switch))
+                nil)
+              (doseq [branch deleted]
                 (ok id ": " (if dry-run "would delete " "deleted ") branch ", which origin holds"))
               (doseq [{:keys [branch message]} kept]
                 (skipped id ": kept " branch ": " message)))))
@@ -241,8 +246,8 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                     {:aro/problem :usage})))
   (run-all! repositories jobs #(git/maintain! % schedule) report-maintain))
 
-(defn- prune-all! [repositories {:keys [dry-run jobs]}]
-  (run-all! repositories jobs #(git/prune-branches! % dry-run) #(report-prune %1 %2 dry-run)))
+(defn- prune-all! [repositories {:keys [dry-run switch-merged jobs]}]
+  (run-all! repositories jobs #(git/prune-branches! % dry-run :switch-merged switch-merged) #(report-prune %1 %2 dry-run)))
 
 (defn orphans!
   "Prints the clones below the git root that no repository names, with what
@@ -281,6 +286,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
    :keep {:desc "The branch whose worktree becomes the plain clone"}
    :schedule {:desc "hourly, daily or weekly"}
    :dry-run {:coerce :boolean :desc "Report what would be deleted"}
+   :switch-merged {:coerce :boolean :desc "Move plain clones off merged branches before pruning"}
    :delete {:coerce :boolean :desc "Remove the orphans that hold no local work"}
    :help {:coerce :boolean :alias :h}})
 

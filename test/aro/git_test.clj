@@ -530,5 +530,112 @@
     (is (= ["stale"] (:deleted (git/prune-branches! r false))))
     (is (= #{"main" "development" "feature"} (branches gd)))))
 
+(defn- current-branch [dir]
+  (s/git dir "symbolic-ref" "--short" "HEAD"))
+
+(defn- merged-feature!
+  "A plain clone checked out on `feat`, which origin merged with a merge
+  commit and deleted, while the clone's main stayed behind. With `upstream`,
+  feat tracked origin/feat and origin merged it by a fast-forward instead."
+  [& {:keys [upstream]}]
+  (let [up (s/upstream! "app" {"README" "hello\n"})
+        r (repository up :plain)
+        dir (path "clones" "app")
+        work (:work up)]
+    (git/clone! r)
+    (s/git dir "switch" "--quiet" "-c" "feat")
+    (s/commit! dir "feat" {"feat" "x\n"})
+    (if upstream
+      (s/git dir "push" "--quiet" "--set-upstream" "origin" "feat")
+      (s/git dir "push" "--quiet" "origin" "feat"))
+    (s/git work "fetch" "--quiet" "origin")
+    (if upstream
+      (s/git work "merge" "--quiet" "--ff-only" "origin/feat")
+      (s/git work "merge" "--quiet" "--no-ff" "--no-edit" "origin/feat"))
+    (s/push! up "after" {"after" "y\n"})
+    (s/git work "push" "--quiet" "origin" ":feat")
+    (s/git dir "fetch" "--quiet" "--prune" "origin")
+    r))
+
+(deftest switching-moves-a-plain-clone-off-a-branch-merged-by-a-merge-commit
+  (let [r (merged-feature!)
+        dir (:dir r)]
+    (spit (path "clones" "app" "notes") "mine\n")
+    (testing "without the option the checked-out branch stays"
+      (let [result (git/prune-branches! r false)]
+        (is (nil? (:switch result)))
+        (is (= "feat" (current-branch dir)))))
+    (testing "a dry run changes nothing"
+      (let [result (git/prune-branches! r true :switch-merged true)]
+        (is (= {:status :switched :branch "feat" :message "would switch from feat to main"} (:switch result)))
+        (is (= ["feat"] (:deleted result)))
+        (is (= "feat" (current-branch dir)))))
+    (let [result (git/prune-branches! r false :switch-merged true)]
+      (is (= :switched (:status (:switch result))))
+      (is (= ["feat"] (:deleted result)))
+      (is (= "main" (current-branch dir)))
+      (is (= (s/git dir "rev-parse" "origin/main") (s/git dir "rev-parse" "main")))
+      (is (= #{"main"} (branches dir)))
+      (testing "untracked files carry over"
+        (is (= "mine\n" (slurp (path "clones" "app" "notes"))))))))
+
+(deftest switching-moves-a-plain-clone-off-a-fast-forwarded-branch-whose-upstream-is-gone
+  (let [r (merged-feature! :upstream true)
+        result (git/prune-branches! r false :switch-merged true)]
+    (is (= :switched (:status (:switch result))))
+    (is (= "main" (current-branch (:dir r))))
+    (is (= #{"main"} (branches (:dir r))))))
+
+(deftest switching-leaves-a-branch-just-started-from-main
+  (let [up (s/upstream! "app" {"README" "hello\n"})
+        r (repository up :plain)
+        dir (:dir r)]
+    (git/clone! r)
+    (s/git dir "switch" "--quiet" "-c" "fresh")
+    (s/push! up "after" {"after" "y\n"})
+    (s/git dir "fetch" "--quiet" "origin")
+    (let [result (git/prune-branches! r false :switch-merged true)]
+      (is (nil? (:switch result)))
+      (is (= "fresh" (current-branch dir)))
+      (is (= #{"main" "fresh"} (branches dir))))))
+
+(deftest switching-skips-a-merged-branch-with-uncommitted-changes
+  (let [r (merged-feature!)
+        dir (:dir r)]
+    (spit (path "clones" "app" "feat") "changed\n")
+    (let [result (git/prune-branches! r false :switch-merged true)]
+      (is (= {:status :skipped :message "feat is merged but stays checked out: it has uncommitted changes"} (:switch result)))
+      (is (= "feat" (current-branch dir)))
+      (is (= "changed\n" (slurp (path "clones" "app" "feat"))))
+      (is (= #{"main" "feat"} (branches dir))))))
+
+(deftest switching-skips-when-main-holds-commits-origin-lacks
+  (let [r (merged-feature!)
+        dir (:dir r)
+        main (s/git dir "rev-parse" "main")]
+    (s/git dir "switch" "--quiet" "main")
+    (s/commit! dir "local" {"local" "z\n"})
+    (s/git dir "switch" "--quiet" "feat")
+    (let [result (git/prune-branches! r false :switch-merged true)
+          local (s/git dir "rev-parse" "main")]
+      (is (= {:status :skipped :message "feat is merged but stays checked out: main holds commits origin/main lacks"} (:switch result)))
+      (is (= "feat" (current-branch dir)))
+      (is (not= main local))
+      (is (= local (s/git dir "rev-parse" "main"))))))
+
+(deftest switching-skips-when-another-worktree-has-main-checked-out
+  (let [r (merged-feature!)
+        dir (:dir r)]
+    (s/git dir "worktree" "add" "--quiet" (path "clones" "app-main") "main")
+    (let [result (git/prune-branches! r false :switch-merged true)]
+      (is (= {:status :skipped :message "feat is merged but stays checked out: main is checked out in another worktree"} (:switch result)))
+      (is (= "feat" (current-branch dir))))))
+
+(deftest switching-leaves-the-worktrees-layout-alone
+  (let [up (s/upstream! "app" {"README" "hello\n"})
+        r (repository up :worktrees)]
+    (git/clone! r)
+    (is (nil? (:switch (git/prune-branches! r false :switch-merged true))))))
+
 (deftest repositories-clone-over-ssh
   (is (= "github.com:metio/aro" (git/clone-url {:host "github.com" :path "metio/aro"}))))

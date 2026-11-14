@@ -500,6 +500,57 @@
   [dir]
   (set (keep :branch (worktrees dir))))
 
+(defn- merged-into?
+  "Whether the tip of `branch` was merged into `target`: `target` holds it,
+  and either the tip lies off the first-parent history of `target`, where a
+  merge commit puts it, or the upstream of `branch` is gone. A branch just
+  started from the default branch has its tip on that history, so it never
+  counts as merged."
+  [checkout branch target]
+  (let [tip (str/trim (git! "-C" checkout "rev-parse" (str "refs/heads/" branch)))]
+    (and (zero? (:exit (git "-C" checkout "merge-base" "--is-ancestor" tip target)))
+         (or (= "[gone]" (git! "-C" checkout "for-each-ref" "--format=%(upstream:track)" (str "refs/heads/" branch)))
+             (not (some #{tip} (lines (git! "-C" checkout "rev-list" "--first-parent" target "--not" (str tip "^@")))))))))
+
+(defn switch-merged!
+  "Moves the plain clone at `dir` off a branch that origin merged into
+  `default-branch`: the default branch is fast-forwarded to origin's and
+  checked out, so the merged branch is no longer checked out and pruning
+  deletes it. The checkout stays as it is when it has uncommitted changes to
+  tracked files, when the local default branch holds commits origin lacks or
+  is checked out in another worktree, or when the switch would overwrite
+  ignored files. With `dry-run`, nothing changes. Returns nil when the
+  checkout is not on a merged branch, else {:status :switched|:skipped
+  :branch :message}."
+  [dir default-branch dry-run]
+  (let [branch (let [{:keys [exit out]} (git "-C" dir "symbolic-ref" "--quiet" "--short" "HEAD")]
+                 (when (zero? exit) (str/trim out)))
+        target (str "refs/remotes/origin/" default-branch)
+        local (str "refs/heads/" default-branch)
+        skip (fn [why] {:status :skipped :message (str branch " is merged but stays checked out: " why)})]
+    (when (and branch
+               (not (#{default-branch development} branch))
+               (zero? (:exit (git "-C" dir "rev-parse" "--verify" "--quiet" target)))
+               (merged-into? dir branch target))
+      (let [has-local (zero? (:exit (git "-C" dir "rev-parse" "--verify" "--quiet" local)))]
+        (cond
+          (in-progress? dir) (skip "a merge or rebase is in progress")
+          (contains? (checked-out dir) default-branch) (skip (str default-branch " is checked out in another worktree"))
+          (seq (lines (git! "-C" dir "status" "--porcelain" "--untracked-files=no"))) (skip "it has uncommitted changes")
+          (and has-local (not (zero? (:exit (git "-C" dir "merge-base" "--is-ancestor" local target)))))
+          (skip (str default-branch " holds commits origin/" default-branch " lacks"))
+          (seq (ignored-in-the-way dir target))
+          (skip (str "origin/" default-branch " starts tracking ignored files it would overwrite: " (str/join ", " (ignored-in-the-way dir target))))
+          dry-run {:status :switched :branch branch :message (str "would switch from " branch " to " default-branch)}
+          :else
+          (do (if has-local
+                (git! "-C" dir "update-ref" local target)
+                (git! "-C" dir "branch" "--quiet" "--track" default-branch (str "origin/" default-branch)))
+              (let [{:keys [exit err]} (git "-C" dir "switch" "--quiet" default-branch)]
+                (if (zero? exit)
+                  {:status :switched :branch branch :message (str "switched from " branch " to " default-branch " at origin/" default-branch)}
+                  (skip (str "git switch failed: " (str/trim err)))))))))))
+
 (defn prune-branches!
   "Deletes the local branches of the clone of `repository` whose commits the
   default branch of origin holds, keeping the default branch, development
@@ -507,15 +558,19 @@
   gone no longer keeps its branch: git refuses to delete a branch any
   registered worktree holds, so those registrations are pruned first. A
   branch whose upstream is gone but that holds commits origin lacks is kept
-  and reported. With `dry-run`, nothing is deleted. Returns {:status :missing|:failed|:done
-  :message :deleted [branch] :kept [{:branch :message}]}."
-  [{:keys [dir branch]} dry-run]
-  (if (layout-on-disk dir)
+  and reported. With `switch-merged`, a plain clone checked out on a merged
+  branch first moves to the default branch, see `switch-merged!`. With
+  `dry-run`, nothing changes. Returns {:status :missing|:failed|:done
+  :message :switch {:status :branch :message} :deleted [branch] :kept [{:branch :message}]}."
+  [{:keys [dir branch]} dry-run & {:keys [switch-merged]}]
+  (if-let [layout (layout-on-disk dir)]
     (let [gd (git-dir dir)
+          switch (when (and switch-merged (= :plain layout)) (switch-merged! (str dir) branch dry-run))
           _ (when-not dry-run (git! "--git-dir" gd "worktree" "prune"))
           default branch
           target (str "refs/remotes/origin/" default)
-          protected (into #{default development} (checked-out dir))]
+          protected (cond-> (into #{default development} (checked-out dir))
+                      (= :switched (:status switch)) (disj (:branch switch)))]
       (if-not (zero? (:exit (git "--git-dir" gd "rev-parse" "--verify" "--quiet" target)))
         {:status :failed :message (str "origin/" default " does not exist")}
         (let [local (for [line (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname:short) %(upstream:track)" "refs/heads"))
@@ -528,6 +583,7 @@
             (doseq [{:keys [name]} deleted]
               (git! "--git-dir" gd "branch" "--delete" "--force" name)))
           {:status :done
+           :switch switch
            :deleted (mapv :name deleted)
            :kept (vec (for [{:keys [name gone]} others
                             :when gone]
