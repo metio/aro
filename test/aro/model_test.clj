@@ -43,6 +43,17 @@
     (testing "an addition spelled as a clone URL"
       (is (= "metio/sebhoss/dotfiles.yml" (:session-file (by-id "github.com:sebhoss/dotfiles")))))))
 
+(deftest switch-merged-comes-from-the-override-the-source-or-the-config
+  (let [config (-> config
+                   (assoc :switch-merged true)
+                   (assoc-in [:sources 1 :switch-merged] false)
+                   (assoc-in [:repositories "github.com:metio/aro" :switch-merged] true))
+        by-id (into {} (map (juxt :id :switch-merged)) (model/repositories config inventory))]
+    (is (= {"git.example.org:infra.run/tools/fahrplan" true
+            "github.com:metio/aro" true
+            "github.com:sebhoss/dotfiles" false}
+           by-id))))
+
 (deftest an-addition-the-inventory-holds-keeps-the-fetched-record
   (let [config (update config :add conj {:id "git.example.org:infra.run/tools/fahrplan" :source "metio"})
         inventory (assoc inventory "infra" [(record "git.example.org" "infra.run/tools/fahrplan" :default-branch "trunk" :topics ["helm"])])

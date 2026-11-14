@@ -19,7 +19,7 @@ aro update [REPO...] [--jobs N]             # fetch and update every clone
 aro mirror [REPO...] [--jobs N]             # fetch and push origin's default branch and tags to the mirrors
 aro maintain --schedule S [REPO...]         # run git's maintenance tasks for hourly, daily or weekly
 aro prune [REPO...] [--dry-run]             # delete local branches origin's default branch holds
-aro prune [REPO...] --switch-merged         # first move plain clones off merged branches
+aro prune [REPO...] --switch-merged         # first return checkouts on merged branches home
 aro orphans [--delete]                      # list clones no repository names, remove those without local work
 aro layout REPO worktrees|plain [--keep B]  # switch a clone between the layouts
 ```
@@ -145,7 +145,16 @@ A custom property `mirrors` on the repository, holding `gitlab.com:metio.wtf/ilo
 
 `aro prune` deletes the local branches whose commits the default branch of origin already holds, such as branches merged upstream and branches never committed to. The default branch, `development` and every branch a checkout has checked out stay. A branch whose upstream is gone but that holds commits origin lacks, such as one deleted after a squash merge, stays too and is reported with `[SKIP]`. `--dry-run` lists what would be deleted.
 
-`aro prune --switch-merged` also moves a plain clone off the branch it has checked out once origin has merged that branch: it fast-forwards the default branch to origin's, checks it out, and then deletes the merged branch with the others. A branch counts as merged when the default branch of origin holds its tip and either a merge commit brought the tip in, which puts it off the first-parent history of the default branch, or its upstream is gone. A branch just started from the default branch therefore stays. The clone stays on its branch when it has uncommitted changes to tracked files, when the local default branch holds commits origin lacks, when another worktree has the default branch checked out, or when the switch would overwrite ignored files; each case is reported with `[SKIP]`. Untracked files carry over to the default branch. Switching branches changes the files under an editor or a running build, so the option belongs on runs you start yourself, not on a timer. The worktrees layout keeps each branch in a worktree of its own and is left alone.
+A checkout left on a feature branch keeps that branch, so with `--switch-merged`, `aro prune` first returns each checkout whose branch origin has merged to its home branch: the default branch in a plain clone, and in the worktrees layout the branch the worktree is named after. The `development` worktree goes back to `development`, `main` stays on `main`, and a worktree you added for a branch of its own has that branch as its home and stays as it is. The home branch then catches up with origin as in `aro update`, its own commits rebased, and the merged branch is deleted with the others; every deletion prints the commit the branch pointed at.
+
+A branch counts as merged when origin's default branch holds its tip and the branch shows how it got there: its reflog records commits made on it, a merge commit brought it in, or its upstream is gone. A branch started from the default branch and only fast-forwarded since stays. A checkout keeps its branch, reported with `[SKIP]`, during a merge or rebase, with uncommitted changes to tracked files, when another worktree has its home branch checked out, when the switch would overwrite ignored files, or while a process other than an idle shell has its working directory inside it. Untracked files carry over. Without `/proc` aro cannot see the processes and switches nothing.
+
+`--switch-merged` on the command line switches right away. `:switch-merged true` in the config, or on a source or under `:repositories`, makes every `aro prune` switch, such as the one a timer runs, but only checkouts whose HEAD has not moved for `:quiet-hours` (default 24), so a branch you worked on recently stays checked out while you might still have it open:
+
+```clojure
+{:switch-merged true
+ :quiet-hours 24}
+```
 
 ## Generating and comparing
 

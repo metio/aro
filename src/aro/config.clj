@@ -33,6 +33,8 @@
    :inventory (str (fs/path (env-dir "XDG_STATE_HOME" ".local/state") "aro" "inventory.edn"))
    :layout :plain
    :push-mirrors false
+   :switch-merged false
+   :quiet-hours 24
    :hooks {}})
 
 (defn expand-home [s]

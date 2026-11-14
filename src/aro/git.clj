@@ -181,9 +181,10 @@
 
 (defn- ignored-in-the-way
   "The ignored files of `checkout` that `target` starts tracking, which a
-  fast-forward or rebase onto it would overwrite."
+  fast-forward or rebase onto it would overwrite. A `target` that is a range
+  such as HEAD..branch names the change itself."
   [checkout target]
-  (let [incoming (lines (git! "-C" checkout "diff" "--name-only" "--no-renames" (str "HEAD..." target)))]
+  (let [incoming (lines (git! "-C" checkout "diff" "--name-only" "--no-renames" (if (str/includes? target "..") target (str "HEAD..." target))))]
     (when (seq incoming)
       (->> (str/split (:out (apply git "-C" checkout "ls-files" "--others" "--ignored" "--exclude-standard" "-z" "--" incoming)) #"\u0000")
            (remove str/blank?)
@@ -500,56 +501,131 @@
   [dir]
   (set (keep :branch (worktrees dir))))
 
+(def shells
+  "Programs that may sit in a checkout at a prompt without holding it: a
+  shell idle at its prompt picks up the switched branch with its next
+  command."
+  #{"bash" "zsh" "fish" "sh" "dash" "ksh" "nu" "xonsh" "elvish"})
+
+(defn- proc-processes
+  "The processes of /proc as [{:pid :command :cwd}], or nil where there is no
+  /proc. A process whose working directory is unreadable, such as one of
+  another user, has no :cwd. slurp cannot read the files of /proc, whose
+  size reads as zero, so they are read whole."
+  []
+  (when (fs/directory? "/proc")
+    (vec (for [entry (fs/list-dir "/proc")
+               :let [pid (parse-long (str (fs/file-name entry)))]
+               :when pid]
+           {:pid pid
+            :command (try (str/trim (String. (java.nio.file.Files/readAllBytes (fs/path entry "comm")))) (catch Exception _ nil))
+            :cwd (try (str (fs/read-link (fs/path entry "cwd"))) (catch Exception _ nil))}))))
+
+(def ^:dynamic *processes*
+  "Returns the running processes as [{:pid :command :cwd}], or nil when they
+  cannot be listed."
+  proc-processes)
+
+(defn- busy
+  "Why `checkout` is in use, or nil: a process other than an idle shell, aro
+  and its git calls has its working directory in it. Without a process list
+  the checkout counts as in use."
+  [checkout]
+  (if-let [processes (*processes*)]
+    (let [root (str (fs/canonicalize checkout))
+          own (into #{(.pid (java.lang.ProcessHandle/current))}
+                    (map #(.pid ^java.lang.ProcessHandle %))
+                    (iterator-seq (.iterator (.descendants (java.lang.ProcessHandle/current)))))
+          inside? #(or (= root %) (str/starts-with? % (str root "/")))
+          holders (for [{:keys [pid command cwd]} processes
+                        :when (and cwd (inside? cwd) (not (own pid)) (not (shells command)))]
+                    (str command " (" pid ")"))]
+      (when (seq holders)
+        (str (str/join ", " (sort holders)) " " (if (next holders) "run" "runs") " in it")))
+    "the running processes cannot be listed"))
+
+(defn- last-moved
+  "When HEAD of `checkout` last moved, in seconds since the epoch: its newest
+  reflog entry, else the commit time of HEAD."
+  [checkout]
+  (let [{:keys [exit out]} (git "-C" checkout "reflog" "show" "-1" "--date=unix" "--format=%gd" "HEAD")]
+    (or (when (zero? exit) (some->> out (re-find #"\{(\d+)\}") second parse-long))
+        (parse-long (git! "-C" checkout "log" "-1" "--format=%ct" "HEAD")))))
+
 (defn- merged-into?
-  "Whether the tip of `branch` was merged into `target`: `target` holds it,
-  and either the tip lies off the first-parent history of `target`, where a
-  merge commit puts it, or the upstream of `branch` is gone. A branch just
-  started from the default branch has its tip on that history, so it never
-  counts as merged."
+  "Whether `branch` of `checkout` was merged into `target`: `target` holds
+  its tip, and the branch carries work of its own that got there, or the
+  merge left a trace. Its reflog shows commits made on it; else a merge
+  commit put the tip off the first-parent history of `target`, or the
+  upstream of the branch is gone. A branch started from the default branch
+  and only fast-forwarded since has none of these, so it never counts as
+  merged."
   [checkout branch target]
-  (let [tip (str/trim (git! "-C" checkout "rev-parse" (str "refs/heads/" branch)))]
+  (let [ref (str "refs/heads/" branch)
+        tip (git! "-C" checkout "rev-parse" ref)]
     (and (zero? (:exit (git "-C" checkout "merge-base" "--is-ancestor" tip target)))
-         (or (= "[gone]" (git! "-C" checkout "for-each-ref" "--format=%(upstream:track)" (str "refs/heads/" branch)))
+         (or (some #(re-find #"^(commit|cherry-pick|revert)" %)
+                   (lines (:out (git "-C" checkout "reflog" "show" "--format=%gs" ref))))
+             (= "[gone]" (git! "-C" checkout "for-each-ref" "--format=%(upstream:track)" ref))
              (not (some #{tip} (lines (git! "-C" checkout "rev-list" "--first-parent" target "--not" (str tip "^@")))))))))
 
+(defn- home-branch
+  "The branch `checkout` returns to once its branch is merged: the default
+  branch for a plain clone, and in the worktrees layout the branch the
+  worktree is named after, when it exists."
+  [layout checkout default-branch]
+  (if (= :plain layout)
+    default-branch
+    (let [name (str (fs/file-name checkout))]
+      (when (zero? (:exit (git "-C" checkout "rev-parse" "--verify" "--quiet" (str "refs/heads/" name))))
+        name))))
+
 (defn switch-merged!
-  "Moves the plain clone at `dir` off a branch that origin merged into
-  `default-branch`: the default branch is fast-forwarded to origin's and
-  checked out, so the merged branch is no longer checked out and pruning
-  deletes it. The checkout stays as it is when it has uncommitted changes to
-  tracked files, when the local default branch holds commits origin lacks or
-  is checked out in another worktree, or when the switch would overwrite
-  ignored files. With `dry-run`, nothing changes. Returns nil when the
-  checkout is not on a merged branch, else {:status :switched|:skipped
-  :branch :message}."
-  [dir default-branch dry-run]
-  (let [branch (let [{:keys [exit out]} (git "-C" dir "symbolic-ref" "--quiet" "--short" "HEAD")]
+  "Moves `checkout` from a branch origin merged into `default-branch` back to
+  its home branch, see `home-branch`, and brings that up to date as `aro
+  update` does, so pruning can delete the merged branch. The checkout stays
+  as it is during a merge or rebase, with uncommitted changes to tracked
+  files, when another worktree has the home branch checked out, when the
+  switch would overwrite ignored files, while a process other than an idle
+  shell works in it, or when its HEAD moved within the last `quiet-seconds`.
+  With `dry-run`, nothing changes. Returns nil when the checkout is not on a
+  merged branch, else {:status :switched|:skipped :branch :tip :message}."
+  [layout dir checkout default-branch dry-run quiet-seconds]
+  (let [branch (let [{:keys [exit out]} (git "-C" checkout "symbolic-ref" "--quiet" "--short" "HEAD")]
                  (when (zero? exit) (str/trim out)))
+        home (home-branch layout checkout default-branch)
         target (str "refs/remotes/origin/" default-branch)
-        local (str "refs/heads/" default-branch)
-        skip (fn [why] {:status :skipped :message (str branch " is merged but stays checked out: " why)})]
-    (when (and branch
-               (not (#{default-branch development} branch))
-               (zero? (:exit (git "-C" dir "rev-parse" "--verify" "--quiet" target)))
-               (merged-into? dir branch target))
-      (let [has-local (zero? (:exit (git "-C" dir "rev-parse" "--verify" "--quiet" local)))]
+        where (str (fs/file-name checkout))]
+    (when (and branch home (not= branch home) (not= branch development) (not= branch default-branch)
+               (zero? (:exit (git "-C" checkout "rev-parse" "--verify" "--quiet" target)))
+               (merged-into? checkout branch target))
+      (let [tip (subs (git! "-C" checkout "rev-parse" "HEAD") 0 12)
+            home-ref (str "refs/heads/" home)
+            has-home (zero? (:exit (git "-C" checkout "rev-parse" "--verify" "--quiet" home-ref)))
+            skip (fn [why] {:status :skipped :branch branch :tip tip
+                            :message (str where " stays on " branch ", which origin merged: " why)})
+            others (set (for [{:keys [path branch]} (worktrees dir)
+                              :when (not= (fs/canonicalize path) (fs/canonicalize checkout))]
+                          branch))
+            idle (- (quot (System/currentTimeMillis) 1000) (last-moved checkout))]
         (cond
-          (in-progress? dir) (skip "a merge or rebase is in progress")
-          (contains? (checked-out dir) default-branch) (skip (str default-branch " is checked out in another worktree"))
-          (seq (lines (git! "-C" dir "status" "--porcelain" "--untracked-files=no"))) (skip "it has uncommitted changes")
-          (and has-local (not (zero? (:exit (git "-C" dir "merge-base" "--is-ancestor" local target)))))
-          (skip (str default-branch " holds commits origin/" default-branch " lacks"))
-          (seq (ignored-in-the-way dir target))
-          (skip (str "origin/" default-branch " starts tracking ignored files it would overwrite: " (str/join ", " (ignored-in-the-way dir target))))
-          dry-run {:status :switched :branch branch :message (str "would switch from " branch " to " default-branch)}
+          (in-progress? checkout) (skip "a merge or rebase is in progress")
+          (others home) (skip (str home " is checked out in another worktree"))
+          (seq (lines (git! "--no-optional-locks" "-C" checkout "status" "--porcelain" "--untracked-files=no"))) (skip "it has uncommitted changes")
+          (and has-home (seq (ignored-in-the-way checkout (str "HEAD.." home-ref))))
+          (skip (str home " tracks ignored files the switch would overwrite: " (str/join ", " (ignored-in-the-way checkout (str "HEAD.." home-ref)))))
+          (busy checkout) (skip (busy checkout))
+          (< idle quiet-seconds) (skip (str "its HEAD moved " (quot idle 3600) " hours ago, within the last " (quot quiet-seconds 3600)))
+          dry-run {:status :switched :branch branch :tip tip :message (str "would switch " where " from " branch " to " home)}
           :else
-          (do (if has-local
-                (git! "-C" dir "update-ref" local target)
-                (git! "-C" dir "branch" "--quiet" "--track" default-branch (str "origin/" default-branch)))
-              (let [{:keys [exit err]} (git "-C" dir "switch" "--quiet" default-branch)]
-                (if (zero? exit)
-                  {:status :switched :branch branch :message (str "switched from " branch " to " default-branch " at origin/" default-branch)}
-                  (skip (str "git switch failed: " (str/trim err)))))))))))
+          (do (when-not has-home
+                (git! "-C" checkout "branch" "--quiet" "--track" home (str "origin/" default-branch)))
+              (let [{:keys [exit err]} (git "-C" checkout "switch" "--quiet" home)]
+                (if-not (zero? exit)
+                  (skip (str "git switch failed: " (str/trim err)))
+                  (let [{:keys [message]} (sync-checkout! checkout default-branch)]
+                    {:status :switched :branch branch :tip tip
+                     :message (str "switched " where " from " branch " to " home "; " message)})))))))))
 
 (defn prune-branches!
   "Deletes the local branches of the clone of `repository` whose commits the
@@ -558,33 +634,42 @@
   gone no longer keeps its branch: git refuses to delete a branch any
   registered worktree holds, so those registrations are pruned first. A
   branch whose upstream is gone but that holds commits origin lacks is kept
-  and reported. With `switch-merged`, a plain clone checked out on a merged
-  branch first moves to the default branch, see `switch-merged!`. With
-  `dry-run`, nothing changes. Returns {:status :missing|:failed|:done
-  :message :switch {:status :branch :message} :deleted [branch] :kept [{:branch :message}]}."
-  [{:keys [dir branch]} dry-run & {:keys [switch-merged]}]
+  and reported. With `switch-merged`, each checkout on a merged branch first
+  returns to its home branch, see `switch-merged!`, unless its HEAD moved
+  within the last `quiet-seconds`. With `dry-run`, nothing changes. Returns
+  {:status :missing|:failed|:done :message :switches [{:status :branch :tip
+  :message}] :deleted [branch] :tips {branch sha} :kept [{:branch :message}]}."
+  [{:keys [dir branch]} dry-run & {:keys [switch-merged quiet-seconds] :or {quiet-seconds 0}}]
   (if-let [layout (layout-on-disk dir)]
     (let [gd (git-dir dir)
-          switch (when (and switch-merged (= :plain layout)) (switch-merged! (str dir) branch dry-run))
+          target (str "refs/remotes/origin/" branch)
+          ready (zero? (:exit (git "--git-dir" gd "rev-parse" "--verify" "--quiet" target)))
           _ (when-not dry-run (git! "--git-dir" gd "worktree" "prune"))
+          checkouts (if (= :plain layout) [(str dir)] (map :path (worktrees dir)))
+          switches (when (and switch-merged ready)
+                     (vec (keep #(try (switch-merged! layout dir % branch dry-run quiet-seconds)
+                                      (catch Exception e {:status :skipped :message (str (fs/file-name %) ": " (ex-message e))}))
+                                checkouts)))
           default branch
-          target (str "refs/remotes/origin/" default)
-          protected (cond-> (into #{default development} (checked-out dir))
-                      (= :switched (:status switch)) (disj (:branch switch)))]
-      (if-not (zero? (:exit (git "--git-dir" gd "rev-parse" "--verify" "--quiet" target)))
+          protected (reduce disj (into #{default development} (checked-out dir))
+                            (when dry-run (keep #(when (= :switched (:status %)) (:branch %)) switches)))]
+      (if-not ready
         {:status :failed :message (str "origin/" default " does not exist")}
         (let [local (for [line (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname:short) %(upstream:track)" "refs/heads"))
                           :let [[name track] (str/split line #" " 2)]
                           :when (not (protected name))]
                       {:name name :gone (= "[gone]" track)})
               merged? #(zero? (:exit (git "--git-dir" gd "merge-base" "--is-ancestor" (str "refs/heads/" (:name %)) target)))
-              {deleted true others false} (group-by (comp boolean merged?) local)]
+              {deleted true others false} (group-by (comp boolean merged?) local)
+              tips (into {} (for [{:keys [name]} deleted]
+                              [name (subs (git! "--git-dir" gd "rev-parse" (str "refs/heads/" name)) 0 12)]))]
           (when-not dry-run
             (doseq [{:keys [name]} deleted]
               (git! "--git-dir" gd "branch" "--delete" "--force" name)))
           {:status :done
-           :switch switch
+           :switches (or switches [])
            :deleted (mapv :name deleted)
+           :tips tips
            :kept (vec (for [{:keys [name gone]} others
                             :when gone]
                         (let [n (git! "--git-dir" gd "rev-list" "--count" (str target "..refs/heads/" name))]

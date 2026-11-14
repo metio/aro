@@ -102,6 +102,7 @@
             :source (:id source)
             :branch (or (:branch override) (:default-branch record) "main")
             :layout (or (:layout override) (:layout source) (:layout config))
+            :switch-merged (true? (first (some #(when (contains? % :switch-merged) [(:switch-merged %)]) [override source config])))
             :dir (or (expand-dir config (:dir override))
                      (str (fs/path (:git-root config) (:host record) (:path record))))
             :session-file (or (:session-file override)
