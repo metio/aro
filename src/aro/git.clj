@@ -167,6 +167,13 @@
        (remove #(or (:bare %) (:prunable %)))
        vec))
 
+(defn checkouts
+  "The directories of every checkout of the clone at `dir`: its own and its
+  linked worktrees for the plain layout, each worktree for the worktrees
+  layout, and none when `dir` holds no clone."
+  [dir]
+  (if (layout-on-disk dir) (mapv :path (worktrees dir)) []))
+
 (defn- in-progress? [checkout]
   (some #(fs/exists? (git! "-C" checkout "rev-parse" "--path-format=absolute" "--git-path" %))
         ["rebase-merge" "rebase-apply" "MERGE_HEAD" "CHERRY_PICK_HEAD" "REVERT_HEAD"]))

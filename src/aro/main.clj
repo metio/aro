@@ -24,7 +24,8 @@
 
 Commands:
   fetch [SOURCE...]        List the repositories of the sources from their forges into the inventory
-  list                     Print every repository with its layout and directory
+  list [REPO...] [--dirs]  Print every repository with its layout and directory, and with --dirs
+                           the canonical directory of every checkout of the cloned ones, one per line
   generate [--out DIR]     Write the sessions of :session-managers and the ttt workspaces
   compare [--toml FILE]... Compare the generated files with those on disk and print suggested overrides
   clone [REPO...] [--max N] [--delay SECONDS]
@@ -95,6 +96,19 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
 (defn- list! [config]
   (doseq [r (repositories config)]
     (println (str (:id r) "\t" (name (:layout r)) "\t" (:branch r) "\t" (:dir r))))
+  true)
+
+(defn list-dirs!
+  "Prints the directory of every checkout of `repositories` once, with every
+  symlink resolved, one per line, for tools that read the checkouts aro
+  manages."
+  [repositories]
+  (doseq [dir (->> repositories
+                   (mapcat (comp git/checkouts :dir))
+                   (map #(str (fs/canonicalize %)))
+                   distinct
+                   sort)]
+    (println dir))
   true)
 
 (defn- generate! [config {:keys [out]}]
@@ -294,6 +308,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
    :dry-run {:coerce :boolean :desc "Report what would be deleted"}
    :switch-merged {:coerce :boolean :desc "Return checkouts on merged branches to their home branch before pruning"}
    :delete {:coerce :boolean :desc "Remove the orphans that hold no local work"}
+   :dirs {:coerce :boolean :desc "Print the directory of every checkout, one per line"}
    :help {:coerce :boolean :alias :h}})
 
 (defn parse
@@ -327,7 +342,9 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
         (let [config (config/load-config (or (:config opts) (config/default-path)))
               success (case command
                         "fetch" (fetch! config args)
-                        "list" (list! config)
+                        "list" (if (:dirs opts)
+                                 (list-dirs! (model/find-repositories (repositories config) args))
+                                 (list! config))
                         "generate" (generate! config opts)
                         "compare" (compare! config opts)
                         "clone" (clone-all! (model/find-repositories (repositories config) args) (:max opts) (or (:delay opts) (:delay config)))

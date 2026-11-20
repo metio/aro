@@ -12,6 +12,7 @@ aro lists the repositories of GitHub organizations and users, GitLab groups and 
 ```shell
 aro fetch [SOURCE...]                       # list the sources' repositories into the inventory
 aro list                                    # print every repository with layout, branch and directory
+aro list --dirs [REPO...]                   # print the canonical directory of every checkout, one per line, e.g. for breto
 aro generate [--out DIR]                    # write the sessions and ttt workspaces
 aro compare [--toml FILE]...                # compare with the files on disk, print suggested config
 aro clone [REPO...] [--max N]               # clone what is missing, one at a time, at most N

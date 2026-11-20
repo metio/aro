@@ -7,6 +7,7 @@
             [aro.main :as main]
             [aro.support :as s :refer [path]]
             [babashka.fs :as fs]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]))
 
 (use-fixtures :each s/with-root)
@@ -100,3 +101,17 @@
     (testing "a failed fetch fails"
       (s/git (path "clones" "plain") "remote" "set-url" "origin" (path "gone.git"))
       (is (false? (main/mirror-all! [(assoc repository :dir (path "clones" "plain"))] 1))))))
+
+(deftest listing-directories-prints-every-checkout-once
+  (let [plain {:id "plain" :url (:url (s/upstream! "plain" {"README" "x\n"})) :dir (path "clones" "plain") :layout :plain :branch "main"}
+        trees {:id "trees" :url (:url (s/upstream! "trees" {"README" "y\n"})) :dir (path "clones" "trees") :layout :worktrees :branch "main"}
+        missing {:id "missing" :url "nowhere" :dir (path "clones" "missing") :layout :plain :branch "main"}
+        canonical #(str (fs/canonicalize %))]
+    (git/clone! plain)
+    (git/clone! trees)
+    (s/git (:dir plain) "worktree" "add" "--quiet" "-b" "topic" (path "clones" "plain-topic"))
+    (fs/create-sym-link (path "link") (path "clones"))
+    (let [out (with-out-str (is (main/list-dirs! [plain trees missing (assoc plain :id "again" :dir (path "link" "plain"))])))]
+      (is (= (sort (map canonical [(path "clones" "plain") (path "clones" "plain-topic")
+                                   (path "clones" "trees" "main") (path "clones" "trees" git/development)]))
+             (str/split-lines out))))))
