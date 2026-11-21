@@ -8,6 +8,7 @@
             [babashka.fs :as fs]
             [cheshire.core :as json]
             [clj-yaml.core :as yaml]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]))
 
 (use-fixtures :each s/with-root)
@@ -114,6 +115,19 @@
       (let [{:keys [written deleted]} (sessions/write! (generated first-plan (assoc config :session-managers [:sesh] :sesh-file (path "sesh" "aro.toml"))) manifest)]
         (is (= [(path "sesh" "aro.toml")] written))
         (is (= [(path "airmux" "metio" "a.yml")] deleted))))))
+
+(deftest writing-keeps-what-another-spelling-of-the-same-directory-wrote
+  (let [real (path "real")
+        link (path "link")
+        manifest (path "state" "generated")]
+    (fs/create-dirs real)
+    (fs/create-sym-link link real)
+    (sessions/write! {(str (fs/path link "a.yml")) "session_name: a\n"} manifest)
+    (let [{:keys [deleted]} (sessions/write! {(str (fs/path real "a.yml")) "session_name: a\n"} manifest)]
+      (is (empty? deleted))
+      (is (fs/exists? (fs/path real "a.yml"))))
+    (testing "the manifest names each file once, whatever spelling wrote it"
+      (is (= [(str (fs/canonicalize (fs/path real "a.yml")))] (str/split-lines (slurp manifest)))))))
 
 (deftest the-manifest-moves-out-of-the-airmux-directory
   (fs/create-dirs (path "airmux"))

@@ -142,9 +142,14 @@
     (spit (str path) text)
     true))
 
+(defn- canonical [path]
+  (str (fs/canonicalize path)))
+
 (defn write!
   "Writes `files`, {path text}, and deletes the files a previous run wrote
   that `files` no longer holds; the file `manifest` records what aro wrote.
+  Paths compare by the file they name, so a run that spells a directory
+  through a symlink keeps what a run under the other spelling wrote.
   Returns the written and deleted paths."
   [files manifest]
   (let [manifest-path (fs/path manifest)
@@ -152,8 +157,10 @@
         written (vec (for [[path text] (sort-by key files)
                            :when (write-if-changed! path text)]
                        path))
-        stale (vec (for [path previous :when (and (not (contains? files path)) (fs/exists? path))]
+        kept (into (sorted-set) (map canonical) (keys files))
+        stale (vec (for [path previous
+                         :when (and (not (str/blank? path)) (not (contains? kept (canonical path))) (fs/exists? path))]
                      (do (fs/delete path) path)))]
     (fs/create-dirs (fs/parent manifest-path))
-    (spit (str manifest-path) (str (str/join "\n" (sort (keys files))) "\n"))
+    (spit (str manifest-path) (str (str/join "\n" kept) "\n"))
     {:written written :deleted stale}))
