@@ -166,3 +166,9 @@
       (is (contains? (ids (assoc-in config [:repositories "git.example.org:infra.run/tools/old" :mirrors] [fahrplan])
                           inventory)
                      fahrplan)))))
+
+(deftest only-the-own-home-is-expanded
+  (let [home (System/getProperty "user.home")]
+    (is (= (str home "/src/aro") (model/expand-dir {:git-root "/g"} "~/src/aro")))
+    (is (= home (model/expand-dir {:git-root "/g"} "~")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"another user's home" (model/expand-dir {:git-root "/g"} "~other/x")))))
