@@ -172,3 +172,15 @@
     (is (= (str home "/src/aro") (model/expand-dir {:git-root "/g"} "~/src/aro")))
     (is (= home (model/expand-dir {:git-root "/g"} "~")))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"another user's home" (model/expand-dir {:git-root "/g"} "~other/x")))))
+
+(deftest ids-ignore-case-where-forges-do
+  (let [config {:git-root "/home/me/git" :layout :plain
+                :sources [{:id "gh" :github {:org "Metio"}}]
+                :repositories {"GitHub.com:metio/Aro" {:branch "dev"}}}
+        aro (first (model/repositories config {"gh" [(record "github.com" "metio/aro")]}))]
+    (is (= "gh/aro.yml" (:session-file aro)) "the root Metio holds the namespace metio")
+    (is (= "dev" (:branch aro)) "the override applies in another spelling of host and name"))
+  (testing "an exact key wins over one differing in case"
+    (let [config {:git-root "/g" :layout :plain :sources [{:id "gh" :github {:org "metio"}}]
+                  :repositories {"github.com:metio/aro" {:branch "exact"} "github.com:metio/ARO" {:branch "other"}}}]
+      (is (= "exact" (:branch (first (model/repositories config {"gh" [(record "github.com" "metio/aro")]}))))))))
