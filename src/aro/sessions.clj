@@ -56,7 +56,9 @@
 (defn- common-dir [dirs]
   (let [split (map #(str/split % #"/") dirs)
         prefix (reduce (fn [a b] (vec (map first (take-while (fn [[x y]] (= x y)) (map vector a b))))) split)]
-    (str/join "/" (if (= 1 (count dirs)) (butlast prefix) prefix))))
+    ;; absolute paths sharing only the root leave the prefix [""]
+    (let [dir (str/join "/" (if (= 1 (count dirs)) (butlast prefix) prefix))]
+      (if (str/blank? dir) "/" dir))))
 
 (defn ttt-file [config group]
   (str (fs/path (:ttt-dir config) (or (:ttt group) (str (:id group) ".ttt")))))

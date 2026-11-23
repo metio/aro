@@ -170,3 +170,8 @@
   (is (= "metio-all"
          (get (sessions/group-session {:ttt-dir (path "ttt")} {:id "metio.all" :session {}} [(repository "aro" :plain)] [])
               "session_name"))))
+
+(deftest a-group-whose-members-share-only-the-root-opens-there
+  (is (= "/"
+         (get (sessions/group-session {:ttt-dir "/t"} {:id "g" :session {}} [{:dir "/home/seb/git/a"} {:dir "/srv/b"}] [])
+              "working_dir"))))
