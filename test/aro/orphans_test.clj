@@ -103,3 +103,26 @@
         (git/clone! r)
         (spit (path "git" "b" "app" "development" "README") "changed\n")
         (is (= :kept (:status (orphans/remove! (:dir r) root))))))))
+
+(deftest a-clone-holding-a-managed-clone-is-no-orphan
+  (let [outer (s/upstream! "outer" {"README" "hello\n" ".gitignore" "vendor/\n"})
+        inner (s/upstream! "inner" {"README" "hello\n"})
+        holder (clone! outer "example.org" "team" "holder")
+        managed (clone! inner "example.org" "team" "holder" "vendor" "app")
+        config {:git-root (path "git")}]
+    (is (= [] (orphans/orphans config [{:dir managed}])))
+    (testing "removing a clone keeps it while another clone is nested inside"
+      (is (= {:status :kept :reasons [(str "it holds the clone " managed)]}
+             (orphans/remove! holder (path "git"))))
+      (is (fs/exists? (fs/path managed ".git"))))))
+
+(deftest a-clone-nested-in-a-worktree-keeps-the-worktrees-clone
+  (let [outer (s/upstream! "outer" {"README" "hello\n" ".gitignore" "vendor/\n"})
+        inner (s/upstream! "inner" {"README" "hello\n"})
+        dir (path "git" "example.org" "team" "outer")]
+    (git/clone! {:id "example.org:team/outer" :url (:url outer) :dir dir :layout :worktrees :branch "main"})
+    (let [nested (path "git" "example.org" "team" "outer" "main" "vendor" "lib")]
+      (fs/create-dirs (fs/parent nested))
+      (s/git s/*root* "clone" "--quiet" (:url inner) nested)
+      (is (= {:status :kept :reasons [(str "it holds the clone " nested)]}
+             (orphans/remove! dir (path "git")))))))
