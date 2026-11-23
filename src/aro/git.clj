@@ -234,9 +234,12 @@
   such as HEAD..branch names the change itself."
   [checkout target]
   (let [incoming (changed-paths checkout (if (str/includes? target "..") target (str "HEAD..." target)))]
+    ;; every ignored file, intersected here: passed on the command line the
+    ;; incoming paths could exceed the argument limit, and git would read
+    ;; each as a pattern
     (when (seq incoming)
-      (->> (str/split (:out (apply git "-C" checkout "ls-files" "--others" "--ignored" "--exclude-standard" "-z" "--" incoming)) #"\u0000")
-           (remove str/blank?)
+      (->> (str/split (git-out! "-C" checkout "ls-files" "--others" "--ignored" "--exclude-standard" "-z") #"\u0000")
+           (filter (set incoming))
            sort))))
 
 (defn- target-of

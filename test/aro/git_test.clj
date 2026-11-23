@@ -727,3 +727,24 @@
     (let [result (git/prune-branches! r false)]
       (is (= ["topic"] (:deleted result)) "the merged branch goes although tag topic exists")
       (is (= ["shadow"] (map :branch (:kept result))) "the gone branch is reported, not thrown on"))))
+
+(deftest updating-past-a-change-larger-than-the-argument-limit
+  ;; 25000 names of about 110 bytes pass the kernel's 2 MiB argument limit
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)
+        dir (str (fs/path (:work upstream) "vendor/some/rather/long/directory/name/for/generated/sources"))]
+    (git/clone! r)
+    (fs/create-dirs dir)
+    (dotimes [i 25000] (spit (str dir "/generated-source-file-number-" i ".txt") "x"))
+    (s/push! upstream "generated" {})
+    (is (= [["app" :updated]] (statuses (git/update! r))))))
+
+(deftest an-incoming-name-is-not-read-as-a-pattern
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)]
+    (git/clone! r)
+    (spit (path "clones" "app" ".git" "info" "exclude") "a.env\n")
+    (spit (path "clones" "app" "a.env") "secret\n")
+    (s/push! upstream "second" {"[ab].env" "upstream\n"})
+    (is (= [["app" :updated]] (statuses (git/update! r))) "a.env is not in the way of [ab].env")
+    (is (= "secret\n" (slurp (path "clones" "app" "a.env"))))))
