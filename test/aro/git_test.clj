@@ -695,3 +695,16 @@
     (s/push! upstream "second" {"ä.env" "upstream\n"})
     (is (= [["app" :skipped]] (statuses (git/update! r))))
     (is (= "secret\n" (slurp (path "clones" "app" "ä.env"))))))
+
+(deftest the-ssh-default-yields-to-a-configured-ssh-command
+  (let [plain (assoc (repository (s/upstream! "plain" {"README" "hello\n"}) :plain) :dir (path "clones" "plain"))
+        keyed (assoc (repository (s/upstream! "keyed" {"README" "hello\n"}) :plain) :dir (path "clones" "keyed"))]
+    (git/clone! plain)
+    (git/clone! keyed)
+    (s/git (:dir keyed) "config" "core.sshCommand" "ssh -i ~/.ssh/deploy")
+    ;; the host's own GIT_SSH_COMMAND or GIT_SSH would decide both
+    (with-redefs [git/getenv (constantly nil)]
+      (is (= "ssh -o BatchMode=yes" (get (#'git/environment ["-C" (:dir plain) "fetch"]) "GIT_SSH_COMMAND"))
+          "without a configured command, a run without a terminal must not prompt")
+      (is (nil? (get (#'git/environment ["-C" (:dir keyed) "fetch"]) "GIT_SSH_COMMAND"))
+          "the repository's core.sshCommand is used"))))
