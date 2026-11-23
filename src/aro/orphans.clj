@@ -26,17 +26,30 @@
               (mapcat walk (subdirs dir))))]
     (if (fs/directory? root) (vec (mapcat walk (subdirs root))) [])))
 
+(defn- nested-clones
+  "The clones inside the clone at `dir`, other than its own worktrees, whose
+  insides are searched in turn."
+  [dir]
+  (let [canonical #(str (fs/canonicalize %))
+        own (if (= :worktrees (git/layout-on-disk dir))
+              (set (map (comp canonical :path) (git/worktrees dir)))
+              #{})]
+    (mapcat #(if (own (canonical %)) (clones %) [%]) (clones dir))))
+
 (defn- inside? [dir known]
   (or (= dir known) (str/starts-with? dir (str known "/"))))
 
 (defn orphans
   "The clones below the git root of `config` that are neither the clone of
-  one of `repositories` nor inside a group's :dirs."
+  one of `repositories`, nor inside a group's :dirs, nor holding either of
+  them below their own directory."
   [config repositories]
   (let [canonical #(str (fs/canonicalize %))
         known (map canonical (concat (map :dir repositories)
                                      (mapcat (partial model/group-dirs config) (:groups config))))]
-    (vec (remove (fn [dir] (some (partial inside? (canonical dir)) known))
+    (vec (remove (fn [dir]
+                   (let [dir (canonical dir)]
+                     (some #(or (inside? dir %) (inside? % dir)) known)))
                  (clones (:git-root config))))))
 
 (defn- remove-empty-parents! [dir root]
@@ -51,7 +64,10 @@
   directories it leaves empty below `root`. Returns {:status :removed} or
   {:status :kept :reasons [...]}."
   [dir root]
-  (let [reasons (git/local-work dir)]
+  ;; local-work reads the outer clone only, and deleting it takes every
+  ;; clone nested inside along, whatever it holds
+  (let [reasons (concat (map #(str "it holds the clone " %) (nested-clones dir))
+                        (git/local-work dir))]
     (if (seq reasons)
       {:status :kept :reasons reasons}
       (do (fs/delete-tree dir)

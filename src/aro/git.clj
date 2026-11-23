@@ -153,7 +153,7 @@
       (:failed unpushed) (conj (:failed unpushed))
       (seq (:lines unpushed)) (conj (str (count (:lines unpushed)) " commit" (when (< 1 (count (:lines unpushed))) "s") " on no remote-tracking branch")))))
 
-(defn- worktrees
+(defn worktrees
   "The checkouts of the worktrees layout at `dir`: [{:path :branch}]."
   [dir]
   (->> (str/split (git! "--git-dir" (git-dir dir) "worktree" "list" "--porcelain") #"\n\n")
