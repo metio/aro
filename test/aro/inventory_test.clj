@@ -50,3 +50,11 @@
 
 (deftest a-missing-inventory-is-empty
   (is (= {:header "" :sources {}} (inventory/read-inventory (path "none.edn")))))
+
+(deftest a-record-with-many-properties-renders-the-same-after-a-round-trip
+  (let [props (into (sorted-map) (for [i (range 12)] [(keyword (str "p" i)) (str "v" i)]))
+        text (inventory/render {:header "" :sources {"metio" [{:host "github.com" :path "metio/aro" :name "aro"
+                                                              :namespace "metio" :default-branch "main"
+                                                              :archived false :fork false :topics []
+                                                              :properties props}]}})]
+    (is (= text (inventory/render (inventory/parse text))))))
