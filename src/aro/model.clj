@@ -5,7 +5,8 @@
   "The repositories of this machine: the inventory's records plus the added
   ones, minus the excluded, each resolved with the overrides of its id into a
   clone directory, layout, branch and session file."
-  (:require [babashka.fs :as fs]
+  (:require [aro.config :as config]
+            [babashka.fs :as fs]
             [clojure.string :as str]))
 
 (defn id [{:keys [host path]}]
@@ -85,7 +86,11 @@
 (defn expand-dir [config dir]
   (cond
     (str/blank? dir) nil
-    (str/starts-with? dir "~") (str/replace-first dir #"^~" (System/getProperty "user.home"))
+    (re-find #"^~(/|$)" dir) (config/expand-home dir)
+    ;; another user's home would need their passwd entry, and replacing
+    ;; the tilde alone names a sibling of the own home
+    (str/starts-with? dir "~") (throw (ex-info (str dir " names another user's home, which aro does not expand; spell it out")
+                                               {:aro/problem :invalid-config}))
     (fs/absolute? dir) dir
     :else (str (fs/path (:git-root config) dir))))
 
