@@ -92,6 +92,14 @@
                  "windows" [{"edit" nil}
                             {"cfg" {"working_dir" "$XDG_CONFIG_HOME/x"}}
                             {"sub" {"working_dir" "drafts"}}]}]
-    (is (= [{:name "cfg" :script "cd $XDG_CONFIG_HOME/x"} {:name "sub" :script "cd drafts"}]
+    (is (= [{:name "cfg" :script "cd \"$XDG_CONFIG_HOME/x\""} {:name "sub" :script "cd drafts"}]
            (:windows (sesh/session "n.yml" session home))))
     (is (string? (:text (sesh/render {"n.yml" session} home))) "one such window does not stop the others")))
+
+(deftest a-window-directory-is-quoted-for-the-shell
+  (let [session {"session_name" "notes" "working_dir" "/home/me/notes"
+                 "windows" [{"edit" nil}
+                            {"music" {"working_dir" "/home/me/My Music"}}
+                            {"odd" {"working_dir" "/home/me/a\"b`c"}}]}]
+    (is (= [{:name "music" :script "cd \"../My Music\""} {:name "odd" :script "cd \"../a\\\"b\\`c\""}]
+           (:windows (sesh/session "n.yml" session home))))))

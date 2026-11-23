@@ -84,6 +84,15 @@
                        (when (seq others)
                          [(str where " has " (inc (count others)) " panes, and sesh opens one; it keeps the first")]))}))
 
+(defn- shell-word
+  "`path` as one word for sh: bare when it holds only characters the shell
+  takes literally, else in double quotes, which keep a $VARIABLE the user
+  wrote expanding."
+  [path]
+  (if (re-matches #"[A-Za-z0-9_./~+@%:,=-]+" path)
+    path
+    (str "\"" (str/replace path #"[\\\"`]" #(str "\\" %)) "\"")))
+
 (defn- script [{:keys [dir commands]} session-dir]
   ;; a directory left relative or naming a variable other than HOME cannot be
   ;; relativized against the session's absolute one, and the shell resolves
@@ -92,7 +101,7 @@
                  (fs/relativize session-dir dir)
                  dir)]
     (str/join "; " (cond->> commands
-                     (not= dir session-dir) (cons (str "cd " target))))))
+                     (not= dir session-dir) (cons (str "cd " (shell-word (str target))))))))
 
 (defn session
   "The sesh session of the airmux `session` at `file`: {:session {...}
