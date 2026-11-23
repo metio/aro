@@ -165,3 +165,8 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"several sessions are named aro"
                             (names {:sessions {"x.yml" {:session_name "aro"}}}
                                    [(repository "aro" :plain :session {:session_name "aro"})]))))))
+
+(deftest a-group-session-name-is-spelled-like-a-repository-session-name
+  (is (= "metio-all"
+         (get (sessions/group-session {:ttt-dir (path "ttt")} {:id "metio.all" :session {}} [(repository "aro" :plain)] [])
+              "session_name"))))
