@@ -149,3 +149,15 @@
     (is (= 1 (main/run [])))
     (is (= 1 (main/run ["--config" "generate"])) "--config took the command as its value")
     (is (= 0 (main/run ["--help"])))))
+
+(deftest listing-shows-only-the-repositories-named
+  (spit (path "config.edn") (pr-str {:git-root (path "git") :inventory (path "inventory.edn")
+                                     :manifest (path "generated")
+                                     :add [{:id "github.com:metio/aro" :source "x"}
+                                           {:id "codeberg.org:metio/aro" :source "x"}]}))
+  (let [out (java.io.StringWriter.)]
+    (binding [*out* out *err* (java.io.StringWriter.)]
+      (is (= 0 (main/run ["--config" (path "config.edn") "list" "github.com:metio/aro"]))))
+    (is (= ["github.com:metio/aro"] (map #(first (str/split % #"\t")) (str/split-lines (str out))))))
+  (binding [*out* (java.io.StringWriter.) *err* (java.io.StringWriter.)]
+    (is (= 1 (main/run ["--config" (path "config.edn") "list" "github.com:metio/typo"])) "an unknown repository is refused")))

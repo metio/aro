@@ -103,8 +103,8 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
 (defn- repositories [config]
   (model/repositories config (:sources (inventory/read-inventory (:inventory config)))))
 
-(defn- list! [config]
-  (doseq [r (repositories config)]
+(defn- list! [repositories]
+  (doseq [r repositories]
     (println (str (:id r) "\t" (name (:layout r)) "\t" (:branch r) "\t" (:dir r))))
   true)
 
@@ -365,9 +365,8 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
         (let [config (load-config opts)
               success (case command
                         "fetch" (fetch! config args)
-                        "list" (if (:dirs opts)
-                                 (list-dirs! (model/find-repositories (repositories config) args))
-                                 (list! config))
+                        "list" (let [found (model/find-repositories (repositories config) args)]
+                                 (if (:dirs opts) (list-dirs! found) (list! found)))
                         "generate" (generate! config opts)
                         "compare" (compare! config opts)
                         "clone" (clone-all! (model/find-repositories (repositories config) args) (:max opts) (or (:delay opts) (:delay config)))
