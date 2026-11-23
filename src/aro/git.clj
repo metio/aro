@@ -29,14 +29,27 @@
   [& args]
   (apply process/shell {:out :string :err :string :continue true :extra-env (environment)} "git" (map str args)))
 
-(defn- git!
-  "Runs git with `args` and returns its trimmed output, throwing on failure."
+(defn- git-out!
+  "Runs git with `args` and returns its output as it came, throwing on
+  failure."
   [& args]
   (let [{:keys [exit out err]} (apply git args)]
     (when-not (zero? exit)
       (throw (ex-info (str "git " (str/join " " args) ": " (str/trim (str err " " out)))
                       {:aro/problem :git})))
-    (str/trim out)))
+    out))
+
+(defn- git!
+  "Runs git with `args` and returns its trimmed output, throwing on failure."
+  [& args]
+  (str/trim (apply git-out! args)))
+
+(defn- changed-paths
+  "The paths the diff `range` touches in `checkout`, read NUL-separated:
+  without -z, git quotes a name with non-ASCII characters, which then names
+  no file."
+  [checkout range]
+  (remove empty? (str/split (git-out! "-C" checkout "diff" "--name-only" "--no-renames" "-z" range) #"\u0000")))
 
 (defn- lines [s]
   (remove str/blank? (str/split-lines (or s ""))))
@@ -191,7 +204,7 @@
   fast-forward or rebase onto it would overwrite. A `target` that is a range
   such as HEAD..branch names the change itself."
   [checkout target]
-  (let [incoming (lines (git! "-C" checkout "diff" "--name-only" "--no-renames" (if (str/includes? target "..") target (str "HEAD..." target))))]
+  (let [incoming (changed-paths checkout (if (str/includes? target "..") target (str "HEAD..." target)))]
     (when (seq incoming)
       (->> (str/split (:out (apply git "-C" checkout "ls-files" "--others" "--ignored" "--exclude-standard" "-z" "--" incoming)) #"\u0000")
            (remove str/blank?)
@@ -306,7 +319,7 @@
                       {:status :updated :message moved-message})
 
                   :else
-                  (let [incoming (set (lines (git! "-C" checkout "diff" "--name-only" "--no-renames" (str head "..." target))))]
+                  (let [incoming (set (changed-paths checkout (str head "..." target)))]
                     (roll-back! checkout head stash)
                     (skip (str "its uncommitted changes to " (str/join ", " (sort (filter incoming changed)))
                                " conflict with " target))))))))))))

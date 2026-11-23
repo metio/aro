@@ -685,3 +685,13 @@
 
 (deftest repositories-clone-over-ssh
   (is (= "github.com:metio/aro" (git/clone-url {:host "github.com" :path "metio/aro"}))))
+
+(deftest updating-keeps-ignored-files-whose-names-git-quotes
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)]
+    (git/clone! r)
+    (spit (path "clones" "app" ".git" "info" "exclude") "*.env\n")
+    (spit (path "clones" "app" "ä.env") "secret\n")
+    (s/push! upstream "second" {"ä.env" "upstream\n"})
+    (is (= [["app" :skipped]] (statuses (git/update! r))))
+    (is (= "secret\n" (slurp (path "clones" "app" "ä.env"))))))
