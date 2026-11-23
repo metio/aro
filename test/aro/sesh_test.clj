@@ -86,3 +86,12 @@
   (is (= ["sessions a.yml, b.yml are all named x, and sesh connects to the first"]
          (:warnings (sesh/render {"a.yml" {"session_name" "x" "working_dir" "/a/"} "b.yml" {"name" "x" "root" "/b"}} home))))
   (is (= "/a" (get-in (sesh/session "a.yml" {"session_name" "x" "working_dir" "/a/"} home) [:session "path"]))))
+
+(deftest a-window-directory-that-is-not-absolute-is-kept-as-written
+  (let [session {"session_name" "notes" "working_dir" "/home/me/notes"
+                 "windows" [{"edit" nil}
+                            {"cfg" {"working_dir" "$XDG_CONFIG_HOME/x"}}
+                            {"sub" {"working_dir" "drafts"}}]}]
+    (is (= [{:name "cfg" :script "cd $XDG_CONFIG_HOME/x"} {:name "sub" :script "cd drafts"}]
+           (:windows (sesh/session "n.yml" session home))))
+    (is (string? (:text (sesh/render {"n.yml" session} home))) "one such window does not stop the others")))

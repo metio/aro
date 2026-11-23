@@ -85,8 +85,14 @@
                          [(str where " has " (inc (count others)) " panes, and sesh opens one; it keeps the first")]))}))
 
 (defn- script [{:keys [dir commands]} session-dir]
-  (str/join "; " (cond->> commands
-                   (not= dir session-dir) (cons (str "cd " (fs/relativize session-dir dir))))))
+  ;; a directory left relative or naming a variable other than HOME cannot be
+  ;; relativized against the session's absolute one, and the shell resolves
+  ;; it as written
+  (let [target (if (and (fs/absolute? dir) (fs/absolute? session-dir))
+                 (fs/relativize session-dir dir)
+                 dir)]
+    (str/join "; " (cond->> commands
+                     (not= dir session-dir) (cons (str "cd " target))))))
 
 (defn session
   "The sesh session of the airmux `session` at `file`: {:session {...}
