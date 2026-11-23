@@ -5,7 +5,8 @@
   "Comparing what aro would generate with the sessions and workspaces on
   disk and the clones they point at, and turning every difference into the
   override that removes it."
-  (:require [aro.git :as git]
+  (:require [aro.forge :as forge]
+            [aro.git :as git]
             [aro.model :as model]
             [aro.sessions :as sessions]
             [babashka.fs :as fs]
@@ -72,11 +73,6 @@
               :when (:upstream fields)]
           [(str/replace (:upstream fields) #"\.git$" "") fields])))
 
-(defn- source-host [{:keys [host github gitlab forgejo]}]
-  (or host
-      (when github "github.com")
-      (some-> (or (:url gitlab) (:url forgejo)) java.net.URI. .getHost)))
-
 (defn- source-for
   "The id of the source a missing repository most likely belongs to: one on
   its host whose root its path is below."
@@ -84,7 +80,7 @@
   (let [[host path] (str/split id #":" 2)]
     (:id (first (filter (fn [{:keys [root github gitlab forgejo] :as source}]
                           (let [root (or root (:group gitlab) (:user gitlab) (:org github) (:user github) (:org forgejo) (:user forgejo))]
-                            (and (= host (source-host source))
+                            (and (= host (forge/source-host source))
                                  (or (nil? root) (str/starts-with? path (str root "/"))))))
                         (:sources config))))))
 

@@ -22,6 +22,17 @@
 (defn host-of [url]
   (.getHost (URI. url)))
 
+(defn source-host
+  "The host `source` records for its repositories: its :host, else the host
+  of its forge's URL, which for GitHub is github.com unless the URL names a
+  GitHub Enterprise server."
+  [{:keys [host github gitlab forgejo]}]
+  (or host
+      (when github
+        (let [api (some-> (:url github) host-of)]
+          (if (or (nil? api) (= "api.github.com" api)) "github.com" api)))
+      (some-> (or (:url gitlab) (:url forgejo)) host-of)))
+
 (defn token
   "The token of `source`: the first line its :token-command prints, or nil
   without one."
@@ -101,7 +112,7 @@
       :else (recur more (conj seen (:path record)) (conj kept record)))))
 
 (defn- listed-repositories
-  [{:keys [github gitlab forgejo host] :as source} get-json token]
+  [{:keys [github gitlab forgejo] :as source} get-json token]
   (cond
     github
     (let [headers (cond-> {"Accept" "application/vnd.github+json"}
@@ -111,7 +122,7 @@
                  (:org github) (str url "/orgs/" (encode (:org github)) "/repos?type=all")
                  token (str url "/user/repos?affiliation=owner")
                  :else (str url "/users/" (encode (:user github)) "/repos?type=owner"))]
-      (cond->> (mapv #(github-record (or host "github.com") %)
+      (cond->> (mapv #(github-record (source-host source) %)
                      (remove :disabled (pages #(get-json % headers) 100 #(str base "&per_page=" %2 "&page=" %1))))
         (and token (not (:org github))) (owned-by (:user github))))
 
@@ -122,7 +133,7 @@
                  (:org forgejo) (str url "/api/v1/orgs/" (encode (:org forgejo)) "/repos?")
                  token (str url "/api/v1/user/repos?")
                  :else (str url "/api/v1/users/" (encode (:user forgejo)) "/repos?"))]
-      (cond->> (mapv #(github-record (or host (host-of url)) %)
+      (cond->> (mapv #(github-record (source-host source) %)
                      (remove :empty (pages #(get-json % headers) 50 #(str base "limit=" %2 "&page=" %1))))
         (and token (not (:org forgejo))) (owned-by (:user forgejo))))
 
@@ -137,7 +148,7 @@
                                                         {:aro/problem :invalid-source :source (:id source)})))
                  token (str url "/api/v4/projects?owned=true&order_by=path&sort=asc")
                  :else (str url "/api/v4/users/" (encode (:user gitlab)) "/projects?order_by=path&sort=asc"))]
-      (cond->> (mapv #(gitlab-record (or host (host-of url)) %)
+      (cond->> (mapv #(gitlab-record (source-host source) %)
                      (remove #(or (:empty_repo %) (= "disabled" (:repository_access_level %)))
                              (pages #(get-json % headers) 100 #(str base "&per_page=" %2 "&page=" %1))))
         (and token (:user gitlab)) (owned-by (:user gitlab))))
