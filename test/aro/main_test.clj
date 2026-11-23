@@ -133,3 +133,13 @@
     (with-redefs [aro.main/generate! (fn [config _] (reset! seen (:git-root config)) true)]
       (is (= 0 (main/run ["--config" (path "config.edn") "generate"]))))
     (is (= (path "git") @seen))))
+
+(deftest a-failing-fetched-hook-fails-the-fetch
+  (doseq [hook [["false"] [(path "no-such-hook")]]]
+    (fs/delete-if-exists (path "inventory.edn"))
+    (let [config {:inventory (path "inventory.edn") :hooks {:fetched hook}
+                  :sources [{:id "a" :github {:org "a"}}]}]
+      (binding [*out* (java.io.StringWriter.) *err* (java.io.StringWriter.)]
+        (is (false? (main/fetch! config [] :get-json (getter {"https://api.github.com/orgs/a/repos?type=all&per_page=100&page=1"
+                                                             [{:name "x" :full_name "a/x" :default_branch "main" :topics []}]})))
+            (pr-str hook))))))

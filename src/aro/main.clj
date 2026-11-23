@@ -52,17 +52,26 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
 (defn- warn [& parts] (println (str "[WARN] " (str/join parts))))
 (defn- error [& parts] (binding [*out* *err*] (println (str "[ERROR] " (str/join parts)))))
 
-(defn- run-hook! [config event replacements]
-  (when-let [command (get-in config [:hooks event])]
+(defn- run-hook!
+  "Runs the hook of `event`, if any, and returns whether it succeeded; a
+  program that cannot be started fails like one that exits non-zero."
+  [config event replacements]
+  (if-let [command (get-in config [:hooks event])]
     (let [command (map #(reduce-kv (fn [s k v] (str/replace s (str "{" (name k) "}") (str v))) % replacements) command)
-          {:keys [exit]} (apply process/shell {:continue true} command)]
-      (when-not (zero? exit)
-        (error "the " (name event) " hook exited with " exit)))))
+          exit (try (:exit (apply process/shell {:continue true} command))
+                    (catch java.io.IOException e
+                      (error "the " (name event) " hook cannot run: " (ex-message e))
+                      nil))]
+      (cond
+        (nil? exit) false
+        (zero? exit) true
+        :else (do (error "the " (name event) " hook exited with " exit) false)))
+    true))
 
 (defn fetch!
   "Fetches the sources named in `ids`, every source without, and writes the
   inventory. A source that fails keeps its previous records. Returns whether
-  every source succeeded."
+  every source and the :fetched hook succeeded."
   [config ids & {:keys [get-json] :or {get-json forge/json-getter}}]
   (let [known (set (map :id (:sources config)))
         unknown (remove known ids)]
@@ -85,10 +94,11 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
           results (doall results)
           after (reduce (fn [inv [id records]] (if records (assoc-in inv [:sources id] records) inv))
                         before results)]
-      (when (inventory/write-inventory! path after)
-        (ok "wrote " path)
-        (run-hook! config :fetched {:inventory path}))
-      (every? second results))))
+      (let [hook-ok (if (inventory/write-inventory! path after)
+                      (do (ok "wrote " path)
+                          (run-hook! config :fetched {:inventory path}))
+                      true)]
+        (and (every? second results) hook-ok)))))
 
 (defn- repositories [config]
   (model/repositories config (:sources (inventory/read-inventory (:inventory config)))))
