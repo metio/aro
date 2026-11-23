@@ -140,3 +140,28 @@
 (deftest unknown-session-managers-are-refused
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #":tmuxinator, which aro does not know; it knows :airmux, :sesh"
                         (managers/files {:session-managers [:tmuxinator]} {}))))
+
+(deftest every-session-name-in-the-plan-is-unique
+  (let [names (fn [config repositories]
+                (sort (map #(get % "session_name") (vals (:sessions (sessions/plan (merge {:ttt-dir (path "ttt")} config) repositories))))))]
+    (testing "ids differing only in host"
+      (is (= ["codeberg-org-metio-aro" "github-com-metio-aro"]
+             (sort (names {} [(repository "aro" :plain)
+                              (repository "aro" :plain :id "codeberg.org:metio/aro" :session-file "cb/aro.yml")])))
+          "the namespace both share does not separate them; the host does"))
+    (testing "ids differing in an earlier namespace segment"
+      (is (= ["a-x-grafana" "b-x-grafana"]
+             (names {} [(repository "grafana" :plain :id "github.com:a/x/grafana" :namespace "a/x" :session-file "a.yml")
+                        (repository "grafana" :plain :id "github.com:b/x/grafana" :namespace "b/x" :session-file "b.yml")]))))
+    (testing "a prefixed name meeting another repository's plain name"
+      (let [ns (names {} [(repository "tools" :plain :id "github.com:metio/tools" :session-file "a.yml")
+                          (repository "tools" :plain :id "github.com:other/tools" :namespace "other" :session-file "b.yml")
+                          (repository "metio-tools" :plain :id "github.com:x/metio-tools" :namespace "x" :session-file "c.yml")])]
+        (is (= (count ns) (count (distinct ns))) (pr-str ns))))
+    (testing "a group session of a repository's name"
+      (is (= ["aro" "metio-aro"]
+             (names {:groups [{:id "aro" :match [{:namespace "metio"}] :session {}}]} [(repository "aro" :plain)]))))
+    (testing "two names the config sets are refused"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"several sessions are named aro"
+                            (names {:sessions {"x.yml" {:session_name "aro"}}}
+                                   [(repository "aro" :plain :session {:session_name "aro"})]))))))
