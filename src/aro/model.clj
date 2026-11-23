@@ -117,8 +117,9 @@
 
 (defn repositories
   "The resolved repositories of `sources`, the inventory's records by source
-  id, sorted by id. A repository another one names as a mirror is left out,
-  because the clone of that one pushes to it."
+  id, sorted by id. A repository another selected one names as a mirror is
+  left out, because the clone of that one pushes to it; a mirror of an
+  archived, forked or excluded repository has no such clone and stays."
   [config sources]
   (let [config (canonical-overrides config)
         by-source (into {} (map (juxt :id identity)) (:sources config))
@@ -127,14 +128,16 @@
                       :when (kept? config source record)]
                   [source record])
         listed (into {} (for [records (vals sources) record records] [(id record) record]))
-        mirror-ids (set (for [rid (distinct (concat (keys (:repositories config)) (keys listed)))
-                              mirror (mirrors (get listed rid) (get-in config [:repositories rid]))]
-                          (canonical-id mirror)))
         added (for [addition (:add config)]
                 [(get by-source (:source addition) {:id (:source addition)})
                  (record-of-addition addition (get listed (id (parse-id (:id addition)))))])
-        resolved (for [[source record] (concat fetched added)
-                       :when (not (get-in config [:repositories (id record) :exclude]))
+        selected (for [[_ record :as pair] (concat fetched added)
+                       :when (not (get-in config [:repositories (id record) :exclude]))]
+                   pair)
+        mirror-ids (set (for [[_ record] selected
+                              mirror (mirrors record (get-in config [:repositories (id record)]))]
+                          (canonical-id mirror)))
+        resolved (for [[source record] selected
                        :when (not (mirror-ids (id record)))]
                    (resolve-repository config source record))]
     (->> resolved

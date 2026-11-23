@@ -153,3 +153,16 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"empty" (model/group-members {:id "g" :match [{}]} rs)))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #":property" (model/group-members {:id "g" :match [{:property {}}]} rs)))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #":property" (model/group-members {:id "g" :match [{:property "release"}]} rs)))))
+
+(deftest a-mirror-of-an-unselected-repository-stays
+  (let [ids #(set (map :id (model/repositories %1 %2)))
+        fahrplan "git.example.org:infra.run/tools/fahrplan"]
+    (testing "named by an archived repository"
+      (is (contains? (ids config (update inventory "infra" conj
+                                         (record "git.example.org" "infra.run/attic2" :archived true
+                                                 :properties {:mirrors fahrplan})))
+                     fahrplan)))
+    (testing "named by an excluded repository's override"
+      (is (contains? (ids (assoc-in config [:repositories "git.example.org:infra.run/tools/old" :mirrors] [fahrplan])
+                          inventory)
+                     fahrplan)))))
