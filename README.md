@@ -120,7 +120,7 @@ The plain layout is an ordinary clone. The worktrees layout is a bare repository
 
 With `:push-mirrors true` in the config, `aro update` also syncs the mirrors of each repository after fetching it, as `aro mirror` does.
 
-Skipped branches print `[SKIP]` with the reason. A failed fetch prints `[ERROR]` and makes the command exit non-zero, which suits a systemd timer with `OnFailure=`. Git runs with `GIT_TERMINAL_PROMPT=0` and, unless `GIT_SSH_COMMAND` is set, `ssh -o BatchMode=yes`, so a run without a terminal fails instead of waiting for input.
+Skipped branches print `[SKIP]` with the reason. A failed fetch prints `[ERROR]` and makes the command exit non-zero, which suits a systemd timer with `OnFailure=`. Git runs with `GIT_TERMINAL_PROMPT=0` and, unless `GIT_SSH_COMMAND`, `GIT_SSH` or a `core.sshCommand` for the checkout is set, `ssh -o BatchMode=yes`, so a run without a terminal fails instead of waiting for input. A configured ssh command is used as it is, so add `-o BatchMode=yes` to it for unattended runs.
 
 ## Mirror sync
 

@@ -19,15 +19,36 @@
   "Variables added to the environment of every git call."
   {})
 
-(defn- environment []
-  (merge (cond-> {"GIT_TERMINAL_PROMPT" "0"}
-           (str/blank? (System/getenv "GIT_SSH_COMMAND")) (assoc "GIT_SSH_COMMAND" "ssh -o BatchMode=yes"))
-         *environment*))
+(defn- getenv [variable] (System/getenv variable))
+
+(def ^:private ssh-configured?
+  "Whether the user chose how git runs ssh for `dir`: GIT_SSH, or a
+  core.sshCommand in any config git reads there. Memoized, since every git
+  call asks."
+  (memoize
+   (fn [env dir]
+     (or (not (str/blank? (getenv "GIT_SSH")))
+         (zero? (:exit (apply process/shell {:out :string :err :string :continue true :extra-env env}
+                              "git" (concat (when dir ["-C" dir]) ["config" "--get" "core.sshCommand"]))))))))
+
+(defn- environment
+  "The variables of a git call with `args`. GIT_SSH_COMMAND outranks both
+  GIT_SSH and core.sshCommand, so the batch-mode default is added only
+  where the user configured neither."
+  [args]
+  (let [base (merge {"GIT_TERMINAL_PROMPT" "0"} *environment*)
+        dir (some (fn [[flag value]] (when (= "-C" flag) value)) (partition 2 1 args))]
+    (cond-> base
+      (and (str/blank? (getenv "GIT_SSH_COMMAND"))
+           (not (contains? base "GIT_SSH_COMMAND"))
+           (not (ssh-configured? base dir)))
+      (assoc "GIT_SSH_COMMAND" "ssh -o BatchMode=yes"))))
 
 (defn git
   "Runs git with `args` and returns {:exit :out :err}."
   [& args]
-  (apply process/shell {:out :string :err :string :continue true :extra-env (environment)} "git" (map str args)))
+  (let [args (map str args)]
+    (apply process/shell {:out :string :err :string :continue true :extra-env (environment args)} "git" args)))
 
 (defn- git-out!
   "Runs git with `args` and returns its output as it came, throwing on
