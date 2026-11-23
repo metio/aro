@@ -70,7 +70,7 @@
   neither, since it gets no workspace either."
   [config group members dirs]
   (when-let [session (and (or (seq members) (seq dirs)) (:session group))]
-    (apply-override {"session_name" (:id group)
+    (apply-override {"session_name" (model/session-name (:id group))
                      "working_dir" (home-relative (common-dir (if (seq members) (map :dir members) dirs)))
                      "windows" [{"edit" {"panes" [{"pane_commands" [(str "ttt --workspace " (home-relative (ttt-file config group)))]}]}}]}
                     (dissoc session :file))))
