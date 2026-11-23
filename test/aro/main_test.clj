@@ -143,3 +143,9 @@
         (is (false? (main/fetch! config [] :get-json (getter {"https://api.github.com/orgs/a/repos?type=all&per_page=100&page=1"
                                                              [{:name "x" :full_name "a/x" :default_branch "main" :topics []}]})))
             (pr-str hook))))))
+
+(deftest a-missing-command-fails
+  (binding [*out* (java.io.StringWriter.) *err* (java.io.StringWriter.)]
+    (is (= 1 (main/run [])))
+    (is (= 1 (main/run ["--config" "generate"])) "--config took the command as its value")
+    (is (= 0 (main/run ["--help"])))))
