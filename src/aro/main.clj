@@ -357,8 +357,11 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
   (try
     (let [{:keys [args opts]} (parse argv)
           [command & args] args]
-      (if (or (:help opts) (nil? command))
-        (do (println usage) 0)
+      (cond
+        (:help opts) (do (println usage) 0)
+        ;; an option that swallowed the command leaves none, and nothing ran
+        (nil? command) (do (error "no command given") (println usage) 1)
+        :else
         (let [config (load-config opts)
               success (case command
                         "fetch" (fetch! config args)
