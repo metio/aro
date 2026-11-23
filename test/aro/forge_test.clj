@@ -144,3 +144,13 @@
                                                           (fake (atom []) gitlab) "t"))))
     (is (= ["o/kept"] (map :path (forge/list-repositories {:id "cb" :forgejo {:url "https://codeberg.org" :org "o"}}
                                                           (fake (atom []) forgejo) nil))))))
+
+(deftest github-enterprise-records-name-the-enterprise-host
+  (let [pages {"https://ghe.example.com/api/v3/orgs/corp/repos?type=all&per_page=100&page=1"
+               [{:name "a" :full_name "corp/a" :default_branch "main" :topics []}]}
+        source {:id "e" :github {:url "https://ghe.example.com/api/v3" :org "corp"}}]
+    (is (= ["ghe.example.com"] (map :host (forge/list-repositories source (fake (atom []) pages) nil))))
+    (is (= "ghe.example.com" (forge/source-host source)))
+    (is (= "github.com" (forge/source-host {:github {:org "metio"}})))
+    (is (= "github.com" (forge/source-host {:github {:url "https://api.github.com" :org "metio"}})))
+    (is (= "git.example.org" (forge/source-host {:host "git.example.org" :github {:url "https://ghe.example.com/api/v3"}})))))
