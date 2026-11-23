@@ -33,8 +33,11 @@
     {:header "" :sources {}}))
 
 (defn- render-record [record]
-  (str "{" (str/join " " (for [k record-keys :when (contains? record k)]
-                           (str k " " (pr-str (get record k)))))
+  ;; a map read back from the file is a hash map above eight entries and
+  ;; prints in hash order, so maps are sorted to render the same either way
+  (str "{" (str/join " " (for [k record-keys :when (contains? record k)
+                               :let [v (get record k)]]
+                           (str k " " (pr-str (if (map? v) (into (sorted-map) v) v)))))
        "}"))
 
 (defn render
