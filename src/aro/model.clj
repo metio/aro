@@ -26,7 +26,8 @@
             url? (str/replace #"^([^/:]+):\d+/" "$1/"))
         [_ host path] (or (re-matches #"([^:/]+)[:/](.+)" s)
                           (throw (ex-info (str s " names no host:path") {:aro/problem :invalid-id})))]
-    {:host host :path path}))
+    ;; host names are case-insensitive, and forges report them in lower case
+    {:host (str/lower-case host) :path path}))
 
 (defn canonical-id
   "The id `s` names in the host:path spelling, or `s` itself when it names
@@ -57,6 +58,18 @@
   (update config :repositories
           #(reduce-kv (fn [m k v] (update m (canonical-id k) merge v)) {} %)))
 
+(defn- override-of
+  "The override of the repository `rid` in `config`: the one keyed by
+  exactly that id, else the only one whose key differs from it in case
+  alone, since GitHub, GitLab and Forgejo resolve owner and repository
+  names regardless of case. Two such keys name no override."
+  [config rid]
+  (let [overrides (:repositories config)]
+    (if (contains? overrides rid)
+      (get overrides rid)
+      (let [same (filter #(= (str/lower-case %) (str/lower-case rid)) (keys overrides))]
+        (when (= 1 (count same)) (get overrides (first same)))))))
+
 (defn- record-of-addition
   "The record of `addition`, over the `fetched` record of the same id when a
   source lists it too, so its default branch and topics remain."
@@ -76,12 +89,16 @@
   [{:keys [root github gitlab forgejo]}]
   (or root (:group gitlab) (:user gitlab) (:org github) (:user github) (:org forgejo) (:user forgejo) ""))
 
-(defn- relative-namespace [root namespace]
-  (cond
-    (str/blank? root) namespace
-    (= root namespace) ""
-    (str/starts-with? namespace (str root "/")) (subs namespace (inc (count root)))
-    :else namespace))
+(defn- relative-namespace
+  "`namespace` below the source's `root`, which the config may spell in
+  another case than the forge reports it."
+  [root namespace]
+  (let [r (str/lower-case root) n (str/lower-case namespace)]
+    (cond
+      (str/blank? root) namespace
+      (= r n) ""
+      (str/starts-with? n (str r "/")) (subs namespace (inc (count root)))
+      :else namespace)))
 
 (defn expand-dir [config dir]
   (cond
@@ -99,7 +116,7 @@
 
 (defn- resolve-repository [config source record]
   (let [rid (id record)
-        override (get-in config [:repositories rid])
+        override (override-of config rid)
         root (source-root source)
         session-dir (:session-dir source (:id source))]
     (merge record
@@ -116,7 +133,7 @@
             :session (get override :session {})})))
 
 (defn- kept? [config source record]
-  (or (get-in config [:repositories (id record) :include])
+  (or (:include (override-of config (id record)))
       (and (or (:archived source) (not (:archived record)))
            (or (:forks source) (not (:fork record))))))
 
@@ -137,10 +154,10 @@
                 [(get by-source (:source addition) {:id (:source addition)})
                  (record-of-addition addition (get listed (id (parse-id (:id addition)))))])
         selected (for [[_ record :as pair] (concat fetched added)
-                       :when (not (get-in config [:repositories (id record) :exclude]))]
+                       :when (not (:exclude (override-of config (id record))))]
                    pair)
         mirror-ids (set (for [[_ record] selected
-                              mirror (mirrors record (get-in config [:repositories (id record)]))]
+                              mirror (mirrors record (override-of config (id record)))]
                           (canonical-id mirror)))
         resolved (for [[source record] selected
                        :when (not (mirror-ids (id record)))]
