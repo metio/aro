@@ -72,6 +72,14 @@
   [checkout range]
   (remove empty? (str/split (git-out! "-C" checkout "diff" "--name-only" "--no-renames" "-z" range) #"\u0000")))
 
+(defn- current-branch
+  "The branch checked out in `dir`, or nil for a detached HEAD. git's short
+  form would read heads/<name> for a branch whose name a tag or a remote ref
+  shares, so the full ref is stripped of refs/heads/ instead."
+  [dir]
+  (let [{:keys [exit out]} (git "-C" dir "symbolic-ref" "--quiet" "HEAD")]
+    (when (zero? exit) (str/replace-first (str/trim out) #"^refs/heads/" ""))))
+
 (defn- lines [s]
   (remove str/blank? (str/split-lines (or s ""))))
 
@@ -301,8 +309,7 @@
   back to the commit it was on with its changes as they were. Returns
   {:status :current|:updated|:skipped :message}."
   [checkout default-branch]
-  (let [branch (let [{:keys [exit out]} (git "-C" checkout "symbolic-ref" "--quiet" "--short" "HEAD")]
-                 (when (zero? exit) (str/trim out)))
+  (let [branch (current-branch checkout)
         skip (fn [why] {:status :skipped :message (str (or branch "HEAD") " left as it is: " why)})]
     (cond
       (nil? branch) (skip "detached")
@@ -632,8 +639,7 @@
   With `dry-run`, nothing changes. Returns nil when the checkout is not on a
   merged branch, else {:status :switched|:skipped :branch :tip :message}."
   [layout dir checkout default-branch dry-run quiet-seconds]
-  (let [branch (let [{:keys [exit out]} (git "-C" checkout "symbolic-ref" "--quiet" "--short" "HEAD")]
-                 (when (zero? exit) (str/trim out)))
+  (let [branch (current-branch checkout)
         home (home-branch layout checkout default-branch)
         target (str "refs/remotes/origin/" default-branch)
         where (str (fs/file-name checkout))]
@@ -696,7 +702,7 @@
                             (when dry-run (keep #(when (= :switched (:status %)) (:branch %)) switches)))]
       (if-not ready
         {:status :failed :message (str "origin/" default " does not exist")}
-        (let [local (for [line (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname:short) %(upstream:track)" "refs/heads"))
+        (let [local (for [line (lines (git! "--git-dir" gd "for-each-ref" "--format=%(refname:lstrip=2) %(upstream:track)" "refs/heads"))
                           :let [[name track] (str/split line #" " 2)]
                           :when (not (protected name))]
                       {:name name :gone (= "[gone]" track)})
@@ -738,8 +744,7 @@
   development are added beside it."
   [dir default-branch]
   (let [dir (str (fs/canonicalize dir))
-        branch (let [{:keys [exit out]} (git "-C" dir "symbolic-ref" "--quiet" "--short" "HEAD")]
-                 (when (zero? exit) (str/trim out)))
+        branch (current-branch dir)
         parking (str dir ".aro-layout")]
     (when-not (= :plain (layout-on-disk dir))
       (throw (ex-info (str dir " is not a plain clone") {:aro/problem :layout})))

@@ -708,3 +708,22 @@
           "without a configured command, a run without a terminal must not prompt")
       (is (nil? (get (#'git/environment ["-C" (:dir keyed) "fetch"]) "GIT_SSH_COMMAND"))
           "the repository's core.sshCommand is used"))))
+
+(deftest pruning-reads-branches-a-tag-shares-a-name-with
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        r (repository upstream :plain)
+        dir (path "clones" "app")]
+    (git/clone! r)
+    (s/git dir "branch" "topic")
+    (s/git dir "tag" "topic")
+    (s/git dir "switch" "--quiet" "-c" "shadow")
+    (s/commit! dir "shadow" {"shadow" "x\n"})
+    (s/git dir "push" "--quiet" "--set-upstream" "origin" "shadow")
+    (s/git (:work upstream) "fetch" "--quiet" "origin")
+    (s/git (:work upstream) "push" "--quiet" "origin" ":shadow")
+    (s/git dir "tag" "shadow")
+    (s/git dir "switch" "--quiet" "main")
+    (s/git dir "fetch" "--quiet" "--prune" "origin")
+    (let [result (git/prune-branches! r false)]
+      (is (= ["topic"] (:deleted result)) "the merged branch goes although tag topic exists")
+      (is (= ["shadow"] (map :branch (:kept result))) "the gone branch is reported, not thrown on"))))
