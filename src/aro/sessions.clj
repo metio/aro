@@ -75,19 +75,52 @@
                      "windows" [{"edit" {"panes" [{"pane_commands" [(str "ttt --workspace " (home-relative (ttt-file config group)))]}]}}]}
                     (dissoc session :file))))
 
+(defn- name-candidates
+  "The session names of `repository` from shortest to longest: its name, then
+  with one more segment of its namespace in front each, then with its host."
+  [{:keys [id namespace name]}]
+  (let [segments (vec (remove str/blank? (str/split (or namespace "") #"/")))
+        host (first (str/split (str id) #":" 2))
+        spelled (fn [parts] (model/session-name (str/join "-" (remove str/blank? parts))))]
+    (vec (concat (for [k (range (inc (count segments)))]
+                   (spelled (concat (take-last k segments) [name])))
+                 [(spelled (concat [host] segments [name]))]))))
+
+(defn- fixed-name [session]
+  (let [session (walk/stringify-keys session)]
+    (or (get session "session_name") (get session "name"))))
+
 (defn- distinct-names
-  "The `sessions` of `repositories`, where a generated session_name that
-  several sessions share gets the last segment of the repository's namespace
-  in front, because tmux opens one session per name. A session_name the
-  config sets is kept."
-  [repositories sessions]
-  (let [taken (frequencies (map #(get % "session_name") sessions))]
-    (map (fn [{:keys [namespace name session]} generated]
-           (if (and (< 1 (taken (get generated "session_name")))
-                    (not (contains? (walk/stringify-keys session) "session_name")))
-             (assoc generated "session_name" (model/session-name (str/join "-" (remove str/blank? [(last (str/split (or namespace "") #"/")) name]))))
-             generated))
-         repositories sessions)))
+  "The `sessions` of `repositories` with every generated session_name unique
+  among themselves and the names in `fixed`, the names the config sets: tmux
+  opens one session per name, so a second session of a name attaches to the
+  first. A generated name that clashes grows by the next namespace segment,
+  and finally the host, until it no longer does."
+  [repositories sessions fixed]
+  (let [generated? (mapv #(not (contains? (walk/stringify-keys (:session %)) "session_name")) repositories)
+        candidates (mapv name-candidates repositories)
+        named (fn [levels]
+                (mapv (fn [i session]
+                        (if (generated? i) (get-in candidates [i (levels i)]) (get session "session_name")))
+                      (range) sessions))
+        levels (loop [levels (vec (repeat (count sessions) 0))]
+                 (let [names (named levels)
+                       taken (frequencies (concat names fixed))
+                       bumped (mapv (fn [i level]
+                                      (if (and (generated? i)
+                                               (< 1 (taken (names i)))
+                                               (< (inc level) (count (candidates i))))
+                                        (inc level)
+                                        level))
+                                    (range) levels)]
+                   (if (= bumped levels) levels (recur bumped))))
+        names (named levels)
+        clashes (sort (for [[n c] (frequencies (concat names fixed)) :when (< 1 c)] n))]
+    (when (seq clashes)
+      (throw (ex-info (str "several sessions are named " (str/join ", " clashes)
+                           ", set a distinct :session_name for all but one")
+                      {:aro/problem :invalid-config})))
+    (map (fn [session n] (assoc session "session_name" n)) sessions names)))
 
 (defn plan
   "Every generated session and workspace as {:sessions {relative-path
@@ -97,13 +130,15 @@
   [config repositories]
   (let [groups (for [group (:groups config)]
                  [group (model/group-members group repositories) (model/group-dirs config group)])]
-    {:sessions (merge (let [rs (remove #(false? (:session %)) repositories)]
+    {:sessions (merge (let [rs (remove #(false? (:session %)) repositories)
+                            group-sessions (keep (fn [[group members dirs]] (group-session config group members dirs)) groups)
+                            fixed (keep fixed-name (concat group-sessions (vals (:sessions config))))]
                       (when-let [shared (seq (for [[file same] (group-by :session-file rs) :when (< 1 (count same))]
                                                (str file " (" (str/join ", " (sort (map :id same))) ")")))]
                         (throw (ex-info (str "several repositories have the same session file, set :session-file or :session false for all but one: "
                                              (str/join "; " shared))
                                         {:aro/problem :invalid-config})))
-                      (zipmap (map :session-file rs) (distinct-names rs (map repository-session rs))))
+                      (zipmap (map :session-file rs) (distinct-names rs (map repository-session rs) fixed)))
                     (into {} (for [[group members dirs] groups
                                    :let [session (group-session config group members dirs)]
                                    :when session]
