@@ -323,23 +323,33 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
       (let [k (keyword (str/replace a #"^--?|=.*$" ""))
             _ (when-not (or (contains? spec k) (= :h k))
                 (throw (ex-info (str "unknown option " a) {:aro/problem :usage})))
-            flag? (or (str/includes? a "=") (= :boolean (get-in spec [k :coerce])) (= :h k) (empty? more))]
+            flag? (or (str/includes? a "=") (= :boolean (get-in spec [k :coerce])) (= :h k))
+            _ (when (and (not flag?) (empty? more))
+                (throw (ex-info (str "option " a " needs a value") {:aro/problem :usage})))]
         (if flag?
           (recur more (conj options a) args)
           (recur (rest more) (conj options a (first more)) args)))
       :else (recur more options (conj args a)))))
 
-(defn -main [& argv]
-  (let [{:keys [args opts]} (try (parse argv)
-                                 (catch clojure.lang.ExceptionInfo e
-                                   (error (ex-message e))
-                                   (println usage)
-                                   (System/exit 1)))
-        [command & args] args]
-    (if (or (:help opts) (nil? command))
-      (println usage)
-      (try
-        (let [config (config/load-config (or (:config opts) (config/default-path)))
+(defn- load-config
+  "The config at the --config path, which must exist, or at the default path,
+  which may be missing and then means all defaults."
+  [opts]
+  (if-let [path (:config opts)]
+    (if (fs/exists? path)
+      (config/load-config path)
+      (throw (ex-info (str "no config file at " path) {:aro/problem :usage})))
+    (config/load-config (config/default-path))))
+
+(defn run
+  "Runs the command `argv` names and returns the process exit code."
+  [argv]
+  (try
+    (let [{:keys [args opts]} (parse argv)
+          [command & args] args]
+      (if (or (:help opts) (nil? command))
+        (do (println usage) 0)
+        (let [config (load-config opts)
               success (case command
                         "fetch" (fetch! config args)
                         "list" (if (:dirs opts)
@@ -355,8 +365,14 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
                         "orphans" (orphans! config (repositories config) (:delete opts))
                         "layout" (layout! config args opts)
                         (do (error "unknown command " command) (println usage) false))]
-          (shutdown-agents)
-          (System/exit (if success 0 1)))
-        (catch clojure.lang.ExceptionInfo e
-          (error (ex-message e))
-          (System/exit 1))))))
+          (if success 0 1))))
+    (catch clojure.lang.ExceptionInfo e
+      (error (ex-message e))
+      (when (= :usage (:aro/problem (ex-data e)))
+        (println usage))
+      1)))
+
+(defn -main [& argv]
+  (let [code (run argv)]
+    (shutdown-agents)
+    (System/exit code)))

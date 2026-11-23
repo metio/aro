@@ -115,3 +115,21 @@
       (is (= (sort (map canonical [(path "clones" "plain") (path "clones" "plain-topic")
                                    (path "clones" "trees" "main") (path "clones" "trees" git/development)]))
              (str/split-lines out))))))
+
+(deftest a-config-file-that-does-not-exist-is-refused
+  ;; generate! is stubbed: on the fallback to defaults it would rewrite the
+  ;; sessions of this machine's real manifest
+  (let [ran (atom false)]
+    (with-redefs [aro.main/generate! (fn [& _] (reset! ran true) true)]
+      (binding [*out* (java.io.StringWriter.) *err* (java.io.StringWriter.)]
+        (is (= 1 (main/run ["--config" (path "missing.edn") "generate"])))
+        (is (= 1 (main/run ["generate" "--config"])))))
+    (is (false? @ran) "no command runs on the built-in defaults"))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--config needs a value" (main/parse ["generate" "--config"]))))
+
+(deftest an-existing-config-file-is-read
+  (spit (path "config.edn") (pr-str {:git-root (path "git")}))
+  (let [seen (atom nil)]
+    (with-redefs [aro.main/generate! (fn [config _] (reset! seen (:git-root config)) true)]
+      (is (= 0 (main/run ["--config" (path "config.edn") "generate"]))))
+    (is (= (path "git") @seen))))
