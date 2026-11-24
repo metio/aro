@@ -55,7 +55,7 @@ Comment lines at the top of the inventory, such as a license header, survive a r
 
 | Key | Meaning |
 | --- | --- |
-| `:github`, `:gitlab`, `:forgejo` | The forge and the organization, user or group to list: `:org` or `:user` on GitHub and Forgejo, `:group` or `:user` on GitLab, or `:membership true` for every GitLab project the token's account is a member of. GitLab groups include their subgroups. GitLab and Forgejo take the instance's `:url`; GitHub takes one only for a GitHub Enterprise server, as its API URL such as `https://ghe.example.org/api/v3`, and its repositories are then recorded under that server's host. |
+| `:github`, `:gitlab`, `:forgejo` | The forge and the organization, user or group to list: `:org` or `:user` on GitHub and Forgejo, `:group` or `:user` on GitLab, or `:membership true` for every GitLab project the token's account is a member of. GitLab groups include their subgroups, and leave out projects of other namespaces shared with the group. GitLab and Forgejo take the instance's `:url`; GitHub takes one only for a GitHub Enterprise server, as its API URL such as `https://ghe.example.org/api/v3`, and its repositories are then recorded under that server's host. |
 | `:token-command` | A command printing a token on its first line, for private repositories. A `:user` with a token lists the repositories the token's account owns, private ones included; a token of another account lists none. |
 | `:tunnel` | An SSH port forward for a forge API that only listens on its own host. |
 | `:host` | The host recorded for the repositories, when the URL differs from the host used for cloning. |

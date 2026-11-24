@@ -57,9 +57,9 @@
       (is (= "https://codeberg.org/api/v1/user/repos?limit=50&page=1" (ffirst @calls)))
       (is (= "token t" (get-in @calls [0 1 "Authorization"]))))))
 
-(deftest gitlab-groups-include-subgroups
+(deftest gitlab-groups-include-subgroups-and-leave-out-shared-projects
   (let [calls (atom [])
-        pages {"https://git.example.org/api/v4/groups/infra.run/projects?include_subgroups=true&order_by=path&sort=asc&per_page=100&page=1"
+        pages {"https://git.example.org/api/v4/groups/infra.run/projects?include_subgroups=true&with_shared=false&order_by=path&sort=asc&per_page=100&page=1"
                [{:path "fahrplan" :path_with_namespace "infra.run/tools/fahrplan" :namespace {:full_path "infra.run/tools"}
                  :default_branch "main" :archived true :topics ["go"] :forked_from_project {:id 1}}]}
         records (forge/list-repositories {:id "infra" :gitlab {:url "https://git.example.org/" :group "infra.run"}} (fake calls pages) "t")]
@@ -118,7 +118,7 @@
 
 (deftest a-host-override-names-the-records
   (testing "a forge reached at another address keeps its own host"
-    (let [pages {"https://localhost:8443/api/v4/groups/g/projects?include_subgroups=true&order_by=path&sort=asc&per_page=100&page=1"
+    (let [pages {"https://localhost:8443/api/v4/groups/g/projects?include_subgroups=true&with_shared=false&order_by=path&sort=asc&per_page=100&page=1"
                  [{:path "a" :path_with_namespace "g/a" :namespace {:full_path "g"} :topics []}]}]
       (is (= "git.example.org"
              (:host (first (forge/list-repositories {:id "x" :host "git.example.org" :gitlab {:url "https://localhost:8443" :group "g"}}
