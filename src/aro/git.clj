@@ -95,6 +95,16 @@
       (= "true" (str/trim (:out (git "--git-dir" dot-git "config" "--bool" "core.bare")))) :worktrees
       :else :plain)))
 
+(defn common-dir
+  "The repository a linked worktree at `dir` belongs to, canonical, or nil
+  when `dir` is no linked worktree: there `.git` is a file pointing into the
+  common directory instead of the repository itself."
+  [dir]
+  (when (fs/regular-file? (fs/path dir ".git") {:nofollow-links true})
+    (let [{:keys [exit out]} (git "-C" dir "rev-parse" "--path-format=absolute" "--git-common-dir")]
+      (when (zero? exit)
+        (str (fs/canonicalize (str/trim out)))))))
+
 (defn clone-url [{:keys [url host path]}]
   (or url (str host ":" path)))
 

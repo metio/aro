@@ -42,14 +42,18 @@
 (defn orphans
   "The clones below the git root of `config` that are neither the clone of
   one of `repositories`, nor inside a group's :dirs, nor holding either of
-  them below their own directory."
+  them below their own directory, nor a linked worktree of a repository
+  inside one of them."
   [config repositories]
   (let [canonical #(str (fs/canonicalize %))
         known (map canonical (concat (map :dir repositories)
                                      (mapcat (partial model/group-dirs config) (:groups config))))]
     (vec (remove (fn [dir]
-                   (let [dir (canonical dir)]
-                     (some #(or (inside? dir %) (inside? % dir)) known)))
+                   (let [dir (canonical dir)
+                         common (git/common-dir dir)]
+                     (some #(or (inside? dir %) (inside? % dir)
+                                (and common (inside? common %)))
+                           known)))
                  (clones (:git-root config))))))
 
 (defn- remove-empty-parents! [dir root]
