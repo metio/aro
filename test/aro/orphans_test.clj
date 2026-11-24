@@ -25,6 +25,17 @@
     (fs/create-dirs (path "git" "example.org" "empty"))
     (is (= [orphan] (orphans/orphans config [{:dir managed}])))))
 
+(deftest a-linked-worktree-of-a-managed-clone-is-no-orphan
+  (let [upstream (s/upstream! "app" {"README" "hello\n" ".gitignore" ".env\n"})
+        managed (clone! upstream "example.org" "team" "app")
+        worktree (path "git" "example.org" "team" "app-feature")
+        orphan (clone! upstream "example.org" "old" "app")
+        orphan-worktree (path "git" "example.org" "old" "app-feature")]
+    (s/git managed "worktree" "add" "--quiet" "-b" "feature" worktree)
+    (s/git orphan "worktree" "add" "--quiet" "-b" "feature" orphan-worktree)
+    (spit (path "git" "example.org" "team" "app-feature" ".env") "SECRET=1\n")
+    (is (= [orphan orphan-worktree] (orphans/orphans {:git-root (path "git")} [{:dir managed}])))))
+
 (deftest orphans-skip-files-and-links-in-the-git-root
   (let [upstream (s/upstream! "app" {"README" "hello\n"})
         outside (path "outside")
