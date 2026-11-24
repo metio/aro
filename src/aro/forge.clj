@@ -141,7 +141,7 @@
     (let [headers (cond-> {} token (assoc "Authorization" (str "Bearer " token)))
           url (base-url (:url gitlab))
           base (cond
-                 (:group gitlab) (str url "/api/v4/groups/" (encode (:group gitlab)) "/projects?include_subgroups=true&order_by=path&sort=asc")
+                 (:group gitlab) (str url "/api/v4/groups/" (encode (:group gitlab)) "/projects?include_subgroups=true&with_shared=false&order_by=path&sort=asc")
                  (:membership gitlab) (if token
                                         (str url "/api/v4/projects?membership=true&order_by=path&sort=asc")
                                         (throw (ex-info (str "the source " (:id source) " lists the projects of its token's account and needs a :token-command")
