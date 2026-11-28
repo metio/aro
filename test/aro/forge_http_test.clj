@@ -176,3 +176,79 @@
           (is (= 2 (count @requests)))
           (is (every? #(= "forge.test" (get-in % [:headers "host"])) @requests))
           (is (every? #(= (str "Bearer " token) (get-in % [:headers "authorization"])) @requests)))))))
+
+(deftest a-request-without-tunnel-starts-no-process
+  (testing "the token travels in this process only, never on a command line or a child's stdin"
+    (server/with-server (github 3)
+      (fn [{:keys [port]}]
+        (with-redefs [babashka.process/process (fn [& _] (throw (ex-info "a process was started" {})))
+                      briko.process/run (fn [& _] (throw (ex-info "a process was started" {})))]
+          (is (= 3 (count (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} token)))))))))
+
+(deftest plain-http-to-a-remote-forge-is-refused-before-connecting
+  (let [e (try (list-through {:id "m" :github {:url "http://forge.invalid" :org "metio"}} token)
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :http (:aro/problem (ex-data e))))
+    (is (re-find #"plain http is refused" (ex-message e)))
+    (is (not (str/includes? (ex-message e) token)))))
+
+(deftest an-answer-over-the-limit-is-refused
+  (with-redefs [forge/limits (assoc forge/limits :max-bytes 1000)]
+    (testing "through briko.http, by its declared length"
+      (server/with-server (constantly {:status 200 :length 5000})
+        (fn [{:keys [port]}]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"larger than 1000 bytes"
+                                (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} nil))))))
+    (testing "through curl, by what arrives, before the JSON reader sees it"
+      (server/with-server (constantly {:status 200 :body (json-array (map github-repo (range 20)))})
+        (fn [{:keys [port]}]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"failed: the answer is larger than 1000 bytes"
+                                (forge/list-repositories {:id "m" :github {:url "http://forge.test" :org "metio"}}
+                                                         (forge/json-getter ["--connect-to" (str "forge.test:80:127.0.0.1:" port)])
+                                                         nil))))))
+    (testing "a negative control: the same page within the limit lists"
+      (server/with-server (github 1)
+        (fn [{:keys [port]}]
+          (is (= 1 (count (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} nil)))))))))
+
+(deftest a-renamed-organization-is-followed-with-its-token
+  (server/with-server (fn [{:keys [target] :as request}]
+                        (if (str/starts-with? target "/orgs/old/")
+                          {:status 301 :headers {"Location" (str/replace target "/orgs/old/" "/orgs/metio/")}}
+                          ((github 2) request)))
+    (fn [{:keys [port requests]}]
+      (is (= 2 (count (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "old"}} token))))
+      (is (every? #(= (str "Bearer " token) (get-in % [:headers "authorization"])) @requests)))))
+
+(deftest a-redirect-to-another-origin-drops-the-token
+  (server/with-server (github 2)
+    (fn [other]
+      (server/with-server (fn [{:keys [target]}]
+                            {:status 302 :headers {"Location" (str "http://127.0.0.1:" (:port other) target)}})
+        (fn [{:keys [port]}]
+          (is (= 2 (count (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} token))))
+          (is (seq @(:requests other)))
+          (is (not-any? #(contains? (:headers %) "authorization") @(:requests other))))))))
+
+(deftest endless-redirects-end
+  (server/with-server (fn [{:keys [target]}] {:status 302 :headers {"Location" target}})
+    (fn [{:keys [port requests]}]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"more than 5 redirects"
+                            (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} nil)))
+      (is (= 6 (count @requests))))))
+
+(deftest a-page-naming-a-key-twice-is-refused
+  (server/with-server (constantly {:status 200 :body "[{\"name\":\"a\",\"name\":\"b\",\"full_name\":\"m/a\"}]"})
+    (fn [{:keys [port]}]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no JSON aro reads"
+                            (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} nil))))))
+
+(deftest a-forge-message-reaches-the-error-on-one-line
+  (server/with-server (constantly {:status 500 :body (str "line one\n\u001b[31mred\u001b[0m " (apply str (repeat 400 "x")))})
+    (fn [{:keys [port]}]
+      (let [message (try (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} nil)
+                         (catch clojure.lang.ExceptionInfo e (ex-message e)))]
+        (is (str/includes? message "HTTP 500: line one"))
+        (is (not (re-find #"[\p{Cc}]" message)))
+        (is (< (count message) 450))))))

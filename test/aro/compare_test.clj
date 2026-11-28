@@ -74,3 +74,9 @@
     (is (= {"github.com:metio/ilo" {:upstream "github.com:metio/ilo"}
             "gitlab.com:genix.net/meta/x" {:upstream "gitlab.com:genix.net/meta/x.git" :worktrees false :branch "master" :local "/somewhere"}}
            (compare/read-toml-repositories [file])))))
+
+(deftest a-workspace-that-is-no-strict-json-fails-naming-its-file
+  (fs/create-dirs (path "ttt"))
+  (spit (path "ttt" "all.ttt") "{\"folders\": [], \"folders\": []}")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo (re-pattern (str (java.util.regex.Pattern/quote (path "ttt" "all.ttt")) ": .*twice"))
+                        (run (config) {}))))
