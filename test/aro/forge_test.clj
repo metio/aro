@@ -89,12 +89,6 @@
         records (forge/list-repositories {:id "gl" :gitlab {:url "https://gitlab.com" :membership true}} (fake calls pages) "t")]
     (is (= ["sebastian.hoss/zoo" "genix.net/x"] (map :path records)))))
 
-(deftest tokens-stay-out-of-the-curl-arguments
-  (let [{:keys [args in]} (forge/curl-request ["--connect-to" "x"] "https://example.org/api" {"Authorization" "Bearer secret"})]
-    (is (not-any? #(str/includes? % "secret") args))
-    (is (= ["--header" "@-" "https://example.org/api"] (take-last 3 args)))
-    (is (= "Authorization: Bearer secret\n" in))))
-
 (deftest forgejo-pages-by-fifty
   (let [calls (atom [])]
     (forge/list-repositories {:id "cb" :forgejo {:url "https://codeberg.org" :user "sebhoss"}} (fake calls {}) nil)

@@ -5,7 +5,7 @@ SPDX-License-Identifier: 0BSD
 
 # aro
 
-aro lists the repositories of GitHub organizations and users, GitLab groups and Forgejo instances, clones them in one of two layouts, keeps every clone up to date without losing local work, and generates tmux sessions for [airmux](https://github.com/dermoumi/airmux) or [sesh](https://github.com/joshmedeski/sesh) and [ttt](https://github.com/eugenioenko/ttt) workspaces for them. It runs on [babashka](https://babashka.org) and calls `git` and, for tunnels, `ssh` and `curl`.
+aro lists the repositories of GitHub organizations and users, GitLab groups and Forgejo instances, clones them in one of two layouts, keeps every clone up to date without losing local work, and generates tmux sessions for [airmux](https://github.com/dermoumi/airmux) or [sesh](https://github.com/joshmedeski/sesh) and [ttt](https://github.com/eugenioenko/ttt) workspaces for them. It runs on [babashka](https://babashka.org) and calls `git` and, for tunnels, `ssh`.
 
 ## Commands
 
@@ -64,9 +64,9 @@ Comment lines at the top of the inventory, such as a license header, survive a r
 | `:root` | The namespace session files are relative to. Defaults to the organization, user or group. |
 | `:session-dir` | The directory below the airmux directory for the source's sessions. Defaults to the id. |
 
-A `:tunnel` runs `ssh -N -L 127.0.0.1:PORT:TARGET SSH` on a free local port for the duration of the fetch, and curl reaches the forge's URL through `--connect-to`. The request keeps the forge's host name, so TLS still checks the forge's own certificate. The token goes to curl on its standard input, never on its command line. The SSH destination must be an account that may forward ports; the `git` account of a forge usually may not.
+A `:tunnel` runs `ssh -N -L 127.0.0.1:PORT:TARGET SSH` on a free local port for the duration of the fetch, and aro sends its requests for the forge's URL to that port. The request keeps the forge's host name, so TLS still checks the forge's own certificate, and the forge's URL must use `https`. A redirect to another host, port or scheme fails the source, since it would leave the tunnel. The SSH destination must be an account that may forward ports; the `git` account of a forge usually may not.
 
-aro asks the forge itself for every source without a tunnel, so the token stays inside aro's own process. The forge's URL must use `https`; plain `http` works only for a forge on the same machine (`localhost`, `127.0.0.0/8` or `[::1]`). Each request may take 10 seconds to connect and 60 seconds in all, follow 5 redirects, and bring a page of at most 8 mebibytes. A redirect to another host, port or scheme drops the token, and a redirect from `https` to `http` fails the source. A page must be strict JSON: an object naming a key twice fails the source as well.
+aro asks the forge itself for every source, with or without a tunnel, so the token stays inside aro's own process. The forge's URL must use `https`; plain `http` works only for a forge on the same machine (`localhost`, `127.0.0.0/8` or `[::1]`) reached without a tunnel. Each request may take 10 seconds to connect and 60 seconds in all, follow 5 redirects, and bring a page of at most 8 mebibytes. A redirect to another host, port or scheme drops the token, and a redirect from `https` to `http` fails the source. A page must be strict JSON: an object naming a key twice fails the source as well.
 
 ## Repositories
 
