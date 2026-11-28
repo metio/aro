@@ -252,3 +252,62 @@
         (is (str/includes? message "HTTP 500: line one"))
         (is (not (re-find #"[\p{Cc}]" message)))
         (is (< (count message) 450))))))
+
+(def ^:private forge-url (str "https://" server/forge-host))
+
+(defn- tunnel-getter
+  "The JSON getter of a tunnel whose forwarded port is `port`, trusting
+  the test certificate unless `trust?` is false."
+  [port & {:keys [trust?] :or {trust? true}}]
+  (forge/json-getter (cond-> ["--connect-to" (str server/forge-host ":443:127.0.0.1:" port)
+                              "--connect-to" (str "git.aro.test:443:127.0.0.1:" port)]
+                       trust? (into ["--cacert" "test/aro/forge.pem"]))))
+
+(defn- refusal-of [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e e)))
+
+(deftest a-tunnel-reaches-an-https-forge-by-its-own-name
+  (testing "the request goes to the forwarded port, while TLS, SNI and Host use the forge's name"
+    (server/with-server (gitlab 150) {:tls? true}
+      (fn [{:keys [port requests]}]
+        (let [records (forge/list-repositories {:id "gl" :gitlab {:url forge-url :group "g"}} (tunnel-getter port) token)]
+          (is (= 148 (count records)))
+          (is (= server/forge-host (:host (first records))))
+          (is (= ["/api/v4/groups/g/projects?include_subgroups=true&with_shared=false&order_by=path&sort=asc&per_page=100&page=1"
+                  "/api/v4/groups/g/projects?include_subgroups=true&with_shared=false&order_by=path&sort=asc&per_page=100&page=2"]
+                 (map :target @requests)))
+          (is (every? #(= server/forge-host (get-in % [:headers "host"])) @requests))
+          (is (every? #(= (str "Bearer " token) (get-in % [:headers "authorization"])) @requests)))))))
+
+(deftest a-tunnel-refuses-a-certificate-for-another-host
+  (server/with-server (github 2) {:tls? true}
+    (fn [{:keys [port requests]}]
+      (testing "the forge's URL names a host the certificate does not"
+        (let [e (refusal-of #(forge/list-repositories {:id "m" :github {:url "https://git.aro.test" :org "metio"}}
+                                                      (tunnel-getter port) token))]
+          (is (= :http (:aro/problem (ex-data e))))
+          (is (not (str/includes? (pr-str (ex-message e) (ex-data e)) token)))))
+      (testing "the system's trust store does not know the test certificate"
+        (is (= :http (:aro/problem (ex-data (refusal-of #(forge/list-repositories {:id "m" :github {:url forge-url :org "metio"}}
+                                                                                  (tunnel-getter port :trust? false) token)))))))
+      (is (empty? @requests) "no refused handshake reached the forge")
+      (testing "a negative control: the forge's own name lists through the same server"
+        (is (= 2 (count (forge/list-repositories {:id "m" :github {:url forge-url :org "metio"}} (tunnel-getter port) token))))))))
+
+(deftest a-tunnel-follows-a-same-origin-redirect-with-its-token
+  (server/with-server (fn [{:keys [target] :as request}]
+                        (if (str/starts-with? target "/orgs/old/")
+                          {:status 301 :headers {"Location" (str forge-url (str/replace target "/orgs/old/" "/orgs/metio/"))}}
+                          ((github 2) request)))
+    {:tls? true}
+    (fn [{:keys [port requests]}]
+      (is (= 2 (count (forge/list-repositories {:id "m" :github {:url forge-url :org "old"}} (tunnel-getter port) token))))
+      (is (every? #(= (str "Bearer " token) (get-in % [:headers "authorization"])) @requests)))))
+
+(deftest a-tunnel-failure-names-the-status-and-the-forge-message
+  (server/with-server (constantly {:status 401 :body "{\"message\":\"Bad credentials\"}"}) {:tls? true}
+    (fn [{:keys [port]}]
+      (let [e (refusal-of #(forge/list-repositories {:id "m" :github {:url forge-url :org "metio"}} (tunnel-getter port) token))]
+        (is (= :http (:aro/problem (ex-data e))))
+        (is (str/includes? (ex-message e) "Bad credentials"))
+        (is (not (str/includes? (pr-str (ex-message e) (ex-data e)) token)))))))
