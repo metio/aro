@@ -57,6 +57,8 @@
 (defn- alive?
   "Whether the process `pid` runs: it exists and is no zombie. Linux only."
   [pid]
+  (when-not (int? pid)
+    (throw (ex-info "the stand-in wrote no pid" {:pid pid})))
   (let [stat (str "/proc/" pid "/stat")]
     (boolean (try (not (re-find #"^\d+ \(.*\) Z " (first (fs/read-all-lines stat))))
                   (catch java.io.IOException _ false)))))
