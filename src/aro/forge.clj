@@ -12,7 +12,6 @@
   (:require [babashka.process :as process]
             [briko.http :as http]
             [briko.json :as json]
-            [briko.process :as proc]
             [clojure.string :as str])
   (:import (java.net URI URLEncoder)
            (java.nio.charset StandardCharsets)))
@@ -192,11 +191,12 @@
         (throw e)))))
 
 (defn- http-get
-  "The JSON body of `url`, requested in this process, so the headers and
-  the token in them never reach a command line."
-  [url headers]
+  "The JSON body of `url`, requested in this process with `options` over
+  `limits`, so the headers and the token in them never reach a command
+  line or a child process."
+  [options url headers]
   (let [{:keys [status body]} (try
-                                (http/request :get url (assoc limits :headers headers :as :text))
+                                (http/request :get url (merge limits options {:headers headers :as :text}))
                                 (catch clojure.lang.ExceptionInfo e
                                   (if (http/refusal? e)
                                     (failed! url (ex-message e))
@@ -205,40 +205,11 @@
       (failed! url (str "HTTP " status (when-not (str/blank? body) (str ": " (printable body))))))
     (parse-json url body)))
 
-(defn curl-request
-  "The curl call GETting `url` through a tunnel: {:args :in}. The headers
-  go to curl's stdin so that a token in them never shows in the process
-  list. curl's --connect-to sends the request to the tunnel's port while
-  TLS checks the forge's own name, which briko.http cannot do."
-  [curl-args url headers]
-  {:args (concat ["curl" "--silent" "--show-error" "--location" "--fail-with-body"
-                  "--max-redirs" (str (:max-redirects limits))
-                  "--connect-timeout" (str (quot (:connect-timeout-ms limits) 1000))
-                  "--max-time" (str (quot (:timeout-ms limits) 1000))]
-                 curl-args
-                 (when (seq headers) ["--header" "@-"])
-                 [url])
-   :in (str/join (map (fn [[k v]] (str k ": " v "\n")) headers))})
-
-(defn- curl-get
-  "The JSON body of `url`, requested by curl with `curl-args`."
-  [curl-args url headers]
-  (let [{:keys [args in]} (curl-request curl-args url headers)
-        {:keys [exit out err out-truncated? timed-out?]} (proc/run (vec args) {:in in
-                                                                    :timeout-ms (+ (:timeout-ms limits) 5000)
-                                                                    :max-out-bytes (inc (:max-bytes limits))})]
-    (cond
-      timed-out? (failed! url (str "curl did not finish within " (:timeout-ms limits) " ms"))
-      out-truncated? (failed! url (str "the answer is larger than " (:max-bytes limits) " bytes"))
-      (not (zero? exit)) (failed! url (printable (str err " " out)))
-      :else (parse-json url out))))
-
 (defn json-getter
-  "A function GETting a URL with headers and parsing the JSON body; a
-  failed request throws. Without `curl-args` the request runs through
-  briko.http; with them, such as the --connect-to of a tunnel, through
-  curl."
-  [curl-args]
-  (if (seq curl-args)
-    (partial curl-get curl-args)
-    http-get))
+  "A function GETting a URL with headers through briko.http and parsing
+  the JSON body; a failed request throws. `options` are briko.http
+  request options laid over `limits`: a tunnel passes {:connect-to {:host
+  :port}}, which sends the request to the forwarded port while TLS still
+  verifies the host the URL names, and a test may add an :ssl-context."
+  [options]
+  (partial http-get options))

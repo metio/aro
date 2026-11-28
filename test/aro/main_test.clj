@@ -13,7 +13,7 @@
 (use-fixtures :each s/with-root)
 
 (defn- getter [pages]
-  (fn [_curl-args]
+  (fn [_http-options]
     (fn [url _headers]
       (if-let [body (get pages url)]
         (if (instance? Exception body) (throw body) body)

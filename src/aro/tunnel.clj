@@ -4,9 +4,9 @@
 (ns aro.tunnel
   "An SSH port forward to a forge API that is only reachable from its own
   host. Requests keep the forge's URL and reach the forwarded port through
-  curl's --connect-to, so TLS still checks the forge's certificate."
+  briko.http's :connect-to, so TLS still checks the forge's certificate."
   (:require [babashka.process :as process])
-  (:import (java.net InetSocketAddress ServerSocket Socket URI)))
+  (:import (java.net InetSocketAddress ServerSocket Socket)))
 
 (defn- free-port []
   (with-open [socket (ServerSocket. 0)]
@@ -28,11 +28,9 @@
           ["-L" (str "127.0.0.1:" port ":" target) ssh]))
 
 (defn connect-to
-  "The curl arguments sending requests for `url` to local `port`."
-  [url port]
-  (let [uri (URI. url)
-        url-port (if (neg? (.getPort uri)) (if (= "http" (.getScheme uri)) 80 443) (.getPort uri))]
-    ["--connect-to" (str (.getHost uri) ":" url-port ":127.0.0.1:" port)]))
+  "The briko.http options sending https requests to local `port`."
+  [port]
+  {:connect-to {:host "127.0.0.1" :port port}})
 
 (defn open
   "Starts the forward of `tunnel` and waits until its port accepts
@@ -67,12 +65,12 @@
   (process/destroy-tree process))
 
 (defn with-tunnel
-  "Calls `f` with the curl arguments reaching `url`: none without a tunnel,
-  else the --connect-to of a forward opened for the call."
-  [tunnel url f]
+  "Calls `f` with the briko.http options reaching the forge: none without
+  a tunnel, else the :connect-to of a forward opened for the call."
+  [tunnel f]
   (if tunnel
     (let [open-tunnel (open tunnel)]
       (try
-        (f (connect-to url (:port open-tunnel)))
+        (f (connect-to (:port open-tunnel)))
         (finally (close open-tunnel))))
-    (f [])))
+    (f {})))

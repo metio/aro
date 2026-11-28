@@ -11,13 +11,11 @@
           "-L" "127.0.0.1:4711:localhost:443" "admin@git.example.org"]
          (tunnel/ssh-command {:ssh "admin@git.example.org" :target "localhost:443" :ssh-options ["-p" "2222"]} 4711))))
 
-(deftest requests-keep-their-host-and-reach-the-local-port
-  (is (= ["--connect-to" "git.example.org:443:127.0.0.1:4711"] (tunnel/connect-to "https://git.example.org" 4711)))
-  (is (= ["--connect-to" "git.example.org:80:127.0.0.1:4711"] (tunnel/connect-to "http://git.example.org/" 4711)))
-  (is (= ["--connect-to" "git.example.org:8443:127.0.0.1:4711"] (tunnel/connect-to "https://git.example.org:8443" 4711))))
+(deftest requests-reach-the-local-port
+  (is (= {:connect-to {:host "127.0.0.1" :port 4711}} (tunnel/connect-to 4711))))
 
-(deftest no-tunnel-adds-no-arguments
-  (is (= [] (tunnel/with-tunnel nil "https://x" identity))))
+(deftest no-tunnel-adds-no-options
+  (is (= {} (tunnel/with-tunnel nil identity))))
 
 (deftest an-ssh-that-exits-fails-the-tunnel
   (is (thrown-with-msg? Exception #"ended before forwarding"

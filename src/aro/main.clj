@@ -88,10 +88,9 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
           results (for [source (:sources config)
                         :when (or (empty? ids) (some #{(:id source)} ids))]
                     (try
-                      (let [url (or (get-in source [:gitlab :url]) (get-in source [:forgejo :url]) (get-in source [:github :url] "https://api.github.com"))
-                            records (tunnel/with-tunnel (:tunnel source) url
-                                      (fn [curl-args]
-                                        (forge/list-repositories source (get-json curl-args) (forge/token source))))]
+                      (let [records (tunnel/with-tunnel (:tunnel source)
+                                      (fn [http-options]
+                                        (forge/list-repositories source (get-json http-options) (forge/token source))))]
                         (ok (:id source) ": " (count records) " repositories")
                         [(:id source) records])
                       (catch Exception e

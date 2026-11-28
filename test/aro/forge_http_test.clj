@@ -7,6 +7,9 @@
   number, Link headers and, past the end, an empty list."
   (:require [aro.forge :as forge]
             [aro.http-server :as server]
+            [babashka.process]
+            [briko.http :as http]
+            [briko.process]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
@@ -99,7 +102,7 @@
          :body (json-array (page-of items page size))}))))
 
 (defn- list-through [source token]
-  (forge/list-repositories source (forge/json-getter []) token))
+  (forge/list-repositories source (forge/json-getter {}) token))
 
 (deftest github-pages-to-the-end-over-http
   (server/with-server (github 250)
@@ -165,17 +168,18 @@
     (fn [{:keys [port]}]
       (is (thrown? Exception (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} nil))))))
 
-(deftest a-tunnel-reaches-the-forge-through-connect-to
-  (testing "the forge's host name stays in the URL; the connection goes to the local port"
-    (server/with-server (gitlab 150)
+(deftest a-tunnel-to-a-plain-http-forge-is-refused-before-connecting
+  (testing "briko.http connects to a forwarded address for https only, so the forge's name is always verified"
+    (server/with-server (gitlab 2)
       (fn [{:keys [port requests]}]
-        (let [get-json (forge/json-getter ["--connect-to" (str "forge.test:80:127.0.0.1:" port)])
-              records (forge/list-repositories {:id "gl" :gitlab {:url "http://forge.test" :group "g"}} get-json token)]
-          (is (= 148 (count records)))
-          (is (= "forge.test" (:host (first records))))
-          (is (= 2 (count @requests)))
-          (is (every? #(= "forge.test" (get-in % [:headers "host"])) @requests))
-          (is (every? #(= (str "Bearer " token) (get-in % [:headers "authorization"])) @requests)))))))
+        (let [e (try (forge/list-repositories {:id "gl" :gitlab {:url "http://forge.test" :group "g"}}
+                                              (forge/json-getter {:connect-to {:host "127.0.0.1" :port port}})
+                                              token)
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :http (:aro/problem (ex-data e))))
+          (is (not (str/includes? (ex-message e) token)))
+          (is (empty? @requests)))))))
 
 (deftest a-request-without-tunnel-starts-no-process
   (testing "the token travels in this process only, never on a command line or a child's stdin"
@@ -200,12 +204,13 @@
         (fn [{:keys [port]}]
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"larger than 1000 bytes"
                                 (list-through {:id "m" :github {:url (str "http://127.0.0.1:" port) :org "metio"}} nil))))))
-    (testing "through curl, by what arrives, before the JSON reader sees it"
-      (server/with-server (constantly {:status 200 :body (json-array (map github-repo (range 20)))})
+    (testing "through a tunnel, by its declared length"
+      (server/with-server (constantly {:status 200 :body (json-array (map github-repo (range 20)))}) {:tls? true}
         (fn [{:keys [port]}]
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"failed: the answer is larger than 1000 bytes"
-                                (forge/list-repositories {:id "m" :github {:url "http://forge.test" :org "metio"}}
-                                                         (forge/json-getter ["--connect-to" (str "forge.test:80:127.0.0.1:" port)])
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"larger than 1000 bytes"
+                                (forge/list-repositories {:id "m" :github {:url (str "https://" server/forge-host) :org "metio"}}
+                                                         (forge/json-getter {:connect-to {:host "127.0.0.1" :port port}
+                                                                             :ssl-context (http/trust-context (server/forge-certificate))})
                                                          nil))))))
     (testing "a negative control: the same page within the limit lists"
       (server/with-server (github 1)
@@ -259,9 +264,8 @@
   "The JSON getter of a tunnel whose forwarded port is `port`, trusting
   the test certificate unless `trust?` is false."
   [port & {:keys [trust?] :or {trust? true}}]
-  (forge/json-getter (cond-> ["--connect-to" (str server/forge-host ":443:127.0.0.1:" port)
-                              "--connect-to" (str "git.aro.test:443:127.0.0.1:" port)]
-                       trust? (into ["--cacert" "test/aro/forge.pem"]))))
+  (forge/json-getter (cond-> {:connect-to {:host "127.0.0.1" :port port}}
+                       trust? (assoc :ssl-context (http/trust-context (server/forge-certificate))))))
 
 (defn- refusal-of [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e e)))
@@ -311,3 +315,30 @@
         (is (= :http (:aro/problem (ex-data e))))
         (is (str/includes? (ex-message e) "Bad credentials"))
         (is (not (str/includes? (pr-str (ex-message e) (ex-data e)) token)))))))
+
+(deftest a-tunnelled-request-starts-no-process
+  (testing "the token travels in this process only, never on a command line or a child's stdin"
+    (server/with-server (github 3) {:tls? true}
+      (fn [{:keys [port]}]
+        (with-redefs [babashka.process/process (fn [& _] (throw (ex-info "a process was started" {})))
+                      briko.process/run (fn [& _] (throw (ex-info "a process was started" {})))]
+          (is (= 3 (count (forge/list-repositories {:id "m" :github {:url forge-url :org "metio"}} (tunnel-getter port) token)))))))))
+
+(deftest a-tunnel-refuses-a-redirect-to-another-origin
+  (testing "the forwarded address is for the forge's own origin only"
+    (server/with-server (github 2)
+      (fn [other]
+        (server/with-server (fn [{:keys [target]}]
+                              {:status 302 :headers {"Location" (str "http://127.0.0.1:" (:port other) target)}})
+          {:tls? true}
+          (fn [{:keys [port]}]
+            (let [e (refusal-of #(forge/list-repositories {:id "m" :github {:url forge-url :org "metio"}} (tunnel-getter port) token))]
+              (is (= :http (:aro/problem (ex-data e))))
+              (is (not (str/includes? (pr-str (ex-message e) (ex-data e)) token))))
+            (is (empty? @(:requests other)))))))))
+
+(deftest a-tunnel-keeps-the-port-the-forge-url-names
+  (server/with-server (github 2) {:tls? true}
+    (fn [{:keys [port requests]}]
+      (is (= 2 (count (forge/list-repositories {:id "m" :github {:url (str forge-url ":8443") :org "metio"}} (tunnel-getter port) token))))
+      (is (every? #(= (str server/forge-host ":8443") (get-in % [:headers "host"])) @requests)))))
