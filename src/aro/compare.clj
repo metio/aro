@@ -10,8 +10,8 @@
             [aro.model :as model]
             [aro.sessions :as sessions]
             [babashka.fs :as fs]
+            [briko.json :as json]
             [briko.paths :as paths]
-            [cheshire.core :as json]
             [clj-yaml.core :as yaml]
             [clojure.string :as str]
             [clojure.walk :as walk]))
@@ -148,7 +148,7 @@
         (for [group (:groups config)
               :let [members (model/group-members group repositories)
                     ttt-path (sessions/ttt-file config group)
-                    theirs (when (fs/exists? ttt-path) (normalized-folders (json/parse-string (slurp ttt-path))))
+                    theirs (when (fs/exists? ttt-path) (normalized-folders (json/parse-file ttt-path)))
                     mine (set (map #(canonical (:dir %)) members))
                     listed (set (keep canonical (model/group-dirs config group)))
                     include (when theirs (sort (keep #(:id (by-dir %)) (remove mine theirs))))

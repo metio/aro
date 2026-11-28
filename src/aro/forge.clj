@@ -10,7 +10,9 @@
   branch, whether it is archived or a fork, its topics, and on GitHub the
   values of its custom properties."
   (:require [babashka.process :as process]
-            [cheshire.core :as json]
+            [briko.http :as http]
+            [briko.json :as json]
+            [briko.process :as proc]
             [clojure.string :as str])
   (:import (java.net URI URLEncoder)
            (java.nio.charset StandardCharsets)))
@@ -157,25 +159,86 @@
     (throw (ex-info (str "the source " (:id source) " names none of :github, :gitlab or :forgejo")
                     {:aro/problem :invalid-source :source (:id source)}))))
 
+(def limits
+  "The bounds of one forge request. A page of 100 repositories measured
+  298 KB to 559 KB on GitHub and gitlab.com (2026-11-28), its largest
+  repository 7 KB, so 8 MiB leaves room for repositories with long
+  descriptions and many topics or properties while keeping a runaway
+  answer out of memory. A forge that redirects, as GitHub does for a
+  renamed organization, gets a few hops."
+  {:max-bytes (* 8 1024 1024)
+   :connect-timeout-ms 10000
+   :timeout-ms 60000
+   :max-redirects 5})
+
+(defn- printable
+  "The start of a forge's answer for an error message, on one line and
+  without control characters."
+  [text]
+  (let [text (str/trim (str/replace (str text) #"[\p{Cc}\p{Cf}\s]+" " "))]
+    (if (< 300 (count text)) (str (subs text 0 300) "…") text)))
+
+(defn- failed! [url reason]
+  (throw (ex-info (str "GET " url " failed: " reason) {:aro/problem :http :url url})))
+
+(defn- parse-json
+  "The JSON page `text`, keys as keywords."
+  [url text]
+  (try
+    (json/parse-string text {:keys :keyword :max-bytes (:max-bytes limits)})
+    (catch clojure.lang.ExceptionInfo e
+      (if (json/refusal? e)
+        (failed! url (str "the answer is no JSON aro reads: " (ex-message e)))
+        (throw e)))))
+
+(defn- http-get
+  "The JSON body of `url`, requested in this process, so the headers and
+  the token in them never reach a command line."
+  [url headers]
+  (let [{:keys [status body]} (try
+                                (http/request :get url (assoc limits :headers headers :as :text))
+                                (catch clojure.lang.ExceptionInfo e
+                                  (if (http/refusal? e)
+                                    (failed! url (ex-message e))
+                                    (throw e))))]
+    (when-not (<= 200 status 299)
+      (failed! url (str "HTTP " status (when-not (str/blank? body) (str ": " (printable body))))))
+    (parse-json url body)))
+
 (defn curl-request
-  "The curl call GETting `url`: {:args :in}. The headers go to curl's stdin
-  so that a token in them never shows in the process list."
+  "The curl call GETting `url` through a tunnel: {:args :in}. The headers
+  go to curl's stdin so that a token in them never shows in the process
+  list. curl's --connect-to sends the request to the tunnel's port while
+  TLS checks the forge's own name, which briko.http cannot do."
   [curl-args url headers]
-  {:args (concat ["curl" "--silent" "--show-error" "--location" "--fail-with-body"]
+  {:args (concat ["curl" "--silent" "--show-error" "--location" "--fail-with-body"
+                  "--max-redirs" (str (:max-redirects limits))
+                  "--connect-timeout" (str (quot (:connect-timeout-ms limits) 1000))
+                  "--max-time" (str (quot (:timeout-ms limits) 1000))]
                  curl-args
                  (when (seq headers) ["--header" "@-"])
                  [url])
    :in (str/join (map (fn [[k v]] (str k ": " v "\n")) headers))})
 
+(defn- curl-get
+  "The JSON body of `url`, requested by curl with `curl-args`."
+  [curl-args url headers]
+  (let [{:keys [args in]} (curl-request curl-args url headers)
+        {:keys [exit out err out-truncated? timed-out?]} (proc/run (vec args) {:in in
+                                                                    :timeout-ms (+ (:timeout-ms limits) 5000)
+                                                                    :max-out-bytes (inc (:max-bytes limits))})]
+    (cond
+      timed-out? (failed! url (str "curl did not finish within " (:timeout-ms limits) " ms"))
+      out-truncated? (failed! url (str "the answer is larger than " (:max-bytes limits) " bytes"))
+      (not (zero? exit)) (failed! url (printable (str err " " out)))
+      :else (parse-json url out))))
+
 (defn json-getter
-  "A function GETting a URL with headers through curl and parsing the JSON
-  body; a failed request throws. `curl-args` go before the URL, such as the
-  --connect-to of a tunnel."
+  "A function GETting a URL with headers and parsing the JSON body; a
+  failed request throws. Without `curl-args` the request runs through
+  briko.http; with them, such as the --connect-to of a tunnel, through
+  curl."
   [curl-args]
-  (fn [url headers]
-    (let [{:keys [args in]} (curl-request curl-args url headers)
-          {:keys [exit out err]} (apply process/shell {:out :string :err :string :continue true :in in} args)]
-      (when-not (zero? exit)
-        (throw (ex-info (str "GET " url " failed: " (str/trim (str err " " out)))
-                        {:aro/problem :http :url url})))
-      (json/parse-string out true))))
+  (if (seq curl-args)
+    (partial curl-get curl-args)
+    http-get))

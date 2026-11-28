@@ -224,3 +224,7 @@
            (sessions/render-workspace
             (sessions/ttt-workspace [{:dir "/home/golden/git/github.com/metio/aro"} {:dir "/home/golden/git/codeberg.org/größe/日本語"}]
                                     ["/opt/with \"quote\" and \\backslash" "/srv/a/b/" "~/notes 🎹"]))))))
+
+(deftest a-workspace-escapes-hidden-code-points
+  (is (= "{\n  \"folders\" : [ {\n    \"path\" : \"/x/\\u202Egnp.exe\"\n  } ]\n}\n"
+         (sessions/render-workspace {"folders" [{"path" "/x/‮gnp.exe"}]}))))

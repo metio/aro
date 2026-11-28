@@ -11,7 +11,7 @@
             [babashka.fs :as fs]
             [briko.fs :as fsx]
             [briko.paths :as paths]
-            [cheshire.core :as json]
+            [briko.json :as json]
             [clojure.string :as str]
             [clojure.walk :as walk]))
 
@@ -153,7 +153,7 @@
                      [(ttt-file config group) (ttt-workspace members dirs)]))}))
 
 (defn render-workspace [workspace]
-  (str (json/generate-string workspace {:pretty true}) "\n"))
+  (str (json/write-string workspace {:pretty? true}) "\n"))
 
 (def legacy-manifest
   "The manifest's name in the airmux directory, where aro kept it before it

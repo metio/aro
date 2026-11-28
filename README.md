@@ -5,7 +5,7 @@ SPDX-License-Identifier: 0BSD
 
 # aro
 
-aro lists the repositories of GitHub organizations and users, GitLab groups and Forgejo instances, clones them in one of two layouts, keeps every clone up to date without losing local work, and generates tmux sessions for [airmux](https://github.com/dermoumi/airmux) or [sesh](https://github.com/joshmedeski/sesh) and [ttt](https://github.com/eugenioenko/ttt) workspaces for them. It runs on [babashka](https://babashka.org) and calls `git`, `curl` and, for tunnels, `ssh`.
+aro lists the repositories of GitHub organizations and users, GitLab groups and Forgejo instances, clones them in one of two layouts, keeps every clone up to date without losing local work, and generates tmux sessions for [airmux](https://github.com/dermoumi/airmux) or [sesh](https://github.com/joshmedeski/sesh) and [ttt](https://github.com/eugenioenko/ttt) workspaces for them. It runs on [babashka](https://babashka.org) and calls `git` and, for tunnels, `ssh` and `curl`.
 
 ## Commands
 
@@ -64,7 +64,9 @@ Comment lines at the top of the inventory, such as a license header, survive a r
 | `:root` | The namespace session files are relative to. Defaults to the organization, user or group. |
 | `:session-dir` | The directory below the airmux directory for the source's sessions. Defaults to the id. |
 
-A `:tunnel` runs `ssh -N -L 127.0.0.1:PORT:TARGET SSH` on a free local port for the duration of the fetch, and curl reaches the forge's URL through `--connect-to`. The request keeps the forge's host name, so TLS still checks the forge's own certificate. The SSH destination must be an account that may forward ports; the `git` account of a forge usually may not.
+A `:tunnel` runs `ssh -N -L 127.0.0.1:PORT:TARGET SSH` on a free local port for the duration of the fetch, and curl reaches the forge's URL through `--connect-to`. The request keeps the forge's host name, so TLS still checks the forge's own certificate. The token goes to curl on its standard input, never on its command line. The SSH destination must be an account that may forward ports; the `git` account of a forge usually may not.
+
+aro asks the forge itself for every source without a tunnel, so the token stays inside aro's own process. The forge's URL must use `https`; plain `http` works only for a forge on the same machine (`localhost`, `127.0.0.0/8` or `[::1]`). Each request may take 10 seconds to connect and 60 seconds in all, follow 5 redirects, and bring a page of at most 8 mebibytes. A redirect to another host, port or scheme drops the token, and a redirect from `https` to `http` fails the source. A page must be strict JSON: an object naming a key twice fails the source as well.
 
 ## Repositories
 
@@ -159,7 +161,7 @@ A branch counts as merged when origin's default branch holds its tip and the bra
 
 ## Generating and comparing
 
-`aro generate` writes a session per repository and group for each session manager `:session-managers` names, by default `[:airmux]`, and the workspaces to `:ttt-dir` (default `$XDG_DATA_HOME/ttt`). A manifest at `:manifest` (default `$XDG_STATE_HOME/aro/generated`) records what aro wrote, so a later run deletes files it no longer generates, those of a session manager taken off the list included, and leaves other files alone.
+`aro generate` writes a session per repository and group for each session manager `:session-managers` names, by default `[:airmux]`, and the workspaces to `:ttt-dir` (default `$XDG_DATA_HOME/ttt`). A manifest at `:manifest` (default `$XDG_STATE_HOME/aro/generated`) records what aro wrote, so a later run deletes files it no longer generates, those of a session manager taken off the list included, and leaves other files alone. A workspace holds its folder paths as written, except that control, bidirectional, and zero-width characters appear as `\uXXXX` escapes.
 
 Sessions, their `:session` overrides and the custom `:sessions` are written in airmux's keys, and each session manager renders them in its own format:
 
@@ -170,7 +172,7 @@ Sessions, their `:session` overrides and the custom `:sessions` are written in a
 
 `[:airmux :sesh]` generates both. sesh opens a session's first window in its path and types its `startup_command` there; a first window without commands, such as `{"shell" nil}`, gets `disable_startup_command`, so the `startup_command` of sesh's `[default_session]` stays out of it. sesh opens every further window as a `[[window]]` that starts in the session's path, so aro gives that window a `cd` into its directory. sesh has no panes: a window keeps the first pane of its airmux window, its commands follow the session's and window's `pane_commands`, and `aro generate` warns about every pane and key that sesh cannot express, such as `layout` or `on_start`, and about sessions sharing a name, since sesh connects to the first of them. Windows written the same in several sessions, such as the worktree of the default branch, become one `[[window]]`. aro writes every clone's session, so sesh's `[[wildcard]]` patterns are only needed for directories aro does not manage.
 
-`aro compare` reads the sessions and workspaces on disk and prints the config that would make aro generate them: layout overrides from the clones on disk, session keys that differ, files that match no repository, and group includes and excludes. A hand-written session naming directories that do not exist is reported as stale, and the generated keys are kept for it. `--toml` reads chezmoi data files listing repositories as `[[x_git_repos]]` tables with `upstream`, `worktrees`, `branch` and `local`.
+`aro compare` reads the sessions and workspaces on disk and prints the config that would make aro generate them: layout overrides from the clones on disk, session keys that differ, files that match no repository, and group includes and excludes. A hand-written session naming directories that do not exist is reported as stale, and the generated keys are kept for it. A workspace on disk must be strict JSON of at most 1 mebibyte; one that is not fails the comparison, naming the file. `--toml` reads chezmoi data files listing repositories as `[[x_git_repos]]` tables with `upstream`, `worktrees`, `branch` and `local`.
 
 ## Development
 
