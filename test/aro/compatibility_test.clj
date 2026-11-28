@@ -45,6 +45,18 @@
   (is (= (edn/read-string (slurp (golden "config-loaded.edn")))
          (config/load-config (golden "config.edn") golden-home))))
 
+(deftest an-empty-config-file-loads-the-defaults-as-before-briko
+  (let [file (path "config.edn")]
+    (spit file "")
+    (is (= (config/defaults golden-home) (config/load-config file golden-home)))
+    (spit file "  ;; nothing configured yet\n")
+    (is (= (config/defaults golden-home) (config/load-config file golden-home)))))
+
+(deftest a-config-link-to-nothing-loads-the-defaults-as-before-briko
+  (let [file (path "config.edn")]
+    (fs/create-sym-link file (path "absent.edn"))
+    (is (= (config/defaults golden-home) (config/load-config file golden-home)))))
+
 (defn- list-config []
   (assoc (config/load-config (golden "list-config.edn")) :inventory (golden "inventory.edn")))
 

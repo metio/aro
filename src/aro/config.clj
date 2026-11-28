@@ -61,9 +61,10 @@
   config)
 
 (defn load-config
-  "Reads the EDN config at `path` over the defaults. A missing file means all
+  "Reads the EDN config at `path` over the defaults. A missing file, an empty
+  one, one holding only comments and a link to nothing all mean all
   defaults."
   ([path] (load-config path nil))
   ([path opts]
-   (-> (paths/load-edn-config path (defaults opts) (merge opts {:home-paths home-paths}))
+   (-> (paths/load-edn-config path (defaults opts) (merge opts {:home-paths home-paths :empty :defaults :dangling :missing}))
        check-sources!)))

@@ -5,6 +5,7 @@
   (:require [aro.git :as git]
             [aro.support :as s :refer [path]]
             [babashka.fs :as fs]
+            [briko.process]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]))
 
@@ -748,3 +749,32 @@
     (s/push! upstream "second" {"[ab].env" "upstream\n"})
     (is (= [["app" :updated]] (statuses (git/update! r))) "a.env is not in the way of [ab].env")
     (is (= "secret\n" (slurp (path "clones" "app" "a.env"))))))
+
+(deftest a-git-call-reads-end-of-file-on-stdin
+  (let [{:keys [exit out]} (git/git "hash-object" "--stdin")]
+    (is (zero? exit))
+    (is (= "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391" (str/trim out)))))
+
+(deftest a-git-call-has-no-deadline-and-bounded-output
+  (let [seen (atom nil)]
+    (with-redefs [briko.process/run (fn [argv opts] (reset! seen [argv opts]) {:exit 0 :out "" :err ""})]
+      (git/git "status"))
+    (is (= ["git" "status"] (first @seen)))
+    (is (= :none (:timeout-ms (second @seen))))
+    (is (= (:max-out-bytes git/output-limits) (:max-out-bytes (second @seen))))
+    (is (= :tail (:err-keep (second @seen))))))
+
+(deftest a-git-call-whose-output-overruns-its-limit-fails
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        {:keys [exit err]} (git/git-with {:max-out-bytes 8} "--git-dir" (:url upstream) "log" "--format=%H")]
+    (is (not (zero? exit)))
+    (is (str/includes? err "exceeds 8 bytes"))))
+
+(deftest a-git-call-past-its-deadline-answers-124
+  (let [upstream (s/upstream! "app" {"README" "hello\n"})
+        hook (str (fs/path (:url upstream) "hooks" "pre-receive"))]
+    (spit hook "#!/bin/sh\nsleep 30\n")
+    (fs/set-posix-file-permissions hook "rwxr-xr-x")
+    (s/commit! (:work upstream) "second" {"b" "b\n"})
+    (let [{:keys [exit]} (git/git-with {:timeout-ms 500} "-C" (:work upstream) "push" "--quiet" "origin" "main")]
+      (is (= 124 exit)))))

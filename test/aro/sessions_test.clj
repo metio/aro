@@ -176,3 +176,44 @@
   (is (= "/"
          (get (sessions/group-session {:ttt-dir "/t"} {:id "g" :session {}} [{:dir "/home/seb/git/a"} {:dir "/srv/b"}] [])
               "working_dir"))))
+
+(deftest writing-through-a-linked-session-file-keeps-the-link
+  (let [target (path "dotfiles" "a.yml")
+        link (path "airmux" "a.yml")]
+    (fs/create-dirs (path "dotfiles"))
+    (fs/create-dirs (path "airmux"))
+    (spit target "session_name: old\n")
+    (fs/create-sym-link link target)
+    (is (= [link] (:written (sessions/write! {link "session_name: a\n"} (path "state" "generated")))))
+    (is (fs/sym-link? link))
+    (is (= "session_name: a\n" (slurp target)))))
+
+(deftest a-dangling-link-at-a-session-file-gets-its-target-written
+  (let [target (path "dotfiles" "a.yml")
+        link (path "airmux" "a.yml")]
+    (fs/create-dirs (path "dotfiles"))
+    (fs/create-dirs (path "airmux"))
+    (fs/create-sym-link link target)
+    (sessions/write! {link "session_name: a\n"} (path "state" "generated"))
+    (is (fs/sym-link? link))
+    (is (= "session_name: a\n" (slurp target)))))
+
+(deftest writing-through-a-linked-manifest-keeps-the-link
+  (let [target (path "dotfiles" "generated")
+        manifest (path "state" "generated")]
+    (fs/create-dirs (path "dotfiles"))
+    (fs/create-dirs (path "state"))
+    (spit target "")
+    (fs/create-sym-link manifest target)
+    (sessions/write! {(path "airmux" "a.yml") "session_name: a\n"} manifest)
+    (is (fs/sym-link? manifest))
+    (is (= [(str (fs/canonicalize (path "airmux" "a.yml")))] (str/split-lines (slurp target))))))
+
+(deftest rewriting-a-session-file-keeps-its-permissions
+  (let [file (path "airmux" "a.yml")]
+    (fs/create-dirs (path "airmux"))
+    (spit file "session_name: old\n")
+    (fs/set-posix-file-permissions file "rw-------")
+    (sessions/write! {file "session_name: a\n"} (path "state" "generated"))
+    (is (= "rw-------" (fs/posix->str (fs/posix-file-permissions file))))
+    (is (= "session_name: a\n" (slurp file)))))
