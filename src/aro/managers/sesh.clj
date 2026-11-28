@@ -13,6 +13,7 @@
   worktree of every clone, are one [[window]]; a name that stands for
   different windows gets the session name in front."
   (:require [babashka.fs :as fs]
+            [briko.paths :as paths]
             [clojure.string :as str]))
 
 (def ^:private pane-keys
@@ -179,5 +180,5 @@
 (defn files
   "{path text} of `sessions` in :sesh-file, and what sesh cannot express."
   [{:keys [sesh-file]} sessions]
-  (let [{:keys [text warnings]} (render sessions (System/getProperty "user.home"))]
+  (let [{:keys [text warnings]} (render sessions (paths/home))]
     {:files {sesh-file text} :warnings warnings}))

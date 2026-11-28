@@ -7,10 +7,8 @@
   clone directory, layout, branch and session file."
   (:require [aro.config :as config]
             [babashka.fs :as fs]
+            [briko.inventory :as inventory]
             [clojure.string :as str]))
-
-(defn id [{:keys [host path]}]
-  (str host ":" path))
 
 (defn parse-id
   "{:host :path} of an id like github.com:metio/aro, accepting the
@@ -33,7 +31,7 @@
   "The id `s` names in the host:path spelling, or `s` itself when it names
   none, so that config keys may use any spelling parse-id accepts."
   [s]
-  (try (id (parse-id s)) (catch clojure.lang.ExceptionInfo _ s)))
+  (try (inventory/id (parse-id s)) (catch clojure.lang.ExceptionInfo _ s)))
 
 (defn mirrors
   "The mirror ids of the repository of `record` and `override`: those of
@@ -115,7 +113,7 @@
   (str/replace name "." "-"))
 
 (defn- resolve-repository [config source record]
-  (let [rid (id record)
+  (let [rid (inventory/id record)
         override (override-of config rid)
         root (source-root source)
         session-dir (:session-dir source (:id source))]
@@ -133,7 +131,7 @@
             :session (get override :session {})})))
 
 (defn- kept? [config source record]
-  (or (:include (override-of config (id record)))
+  (or (:include (override-of config (inventory/id record)))
       (and (or (:archived source) (not (:archived record)))
            (or (:forks source) (not (:fork record))))))
 
@@ -149,18 +147,18 @@
                       record (get sources (:id source))
                       :when (kept? config source record)]
                   [source record])
-        listed (into {} (for [records (vals sources) record records] [(id record) record]))
+        listed (into {} (for [records (vals sources) record records] [(inventory/id record) record]))
         added (for [addition (:add config)]
                 [(get by-source (:source addition) {:id (:source addition)})
-                 (record-of-addition addition (get listed (id (parse-id (:id addition)))))])
+                 (record-of-addition addition (get listed (inventory/id (parse-id (:id addition)))))])
         selected (for [[_ record :as pair] (concat fetched added)
-                       :when (not (:exclude (override-of config (id record))))]
+                       :when (not (:exclude (override-of config (inventory/id record))))]
                    pair)
         mirror-ids (set (for [[_ record] selected
-                              mirror (mirrors record (override-of config (id record)))]
+                              mirror (mirrors record (override-of config (inventory/id record)))]
                           (canonical-id mirror)))
         resolved (for [[source record] selected
-                       :when (not (mirror-ids (id record)))]
+                       :when (not (mirror-ids (inventory/id record)))]
                    (resolve-repository config source record))]
     (->> resolved
          (reduce (fn [by-id repository] (assoc by-id (:id repository) repository)) {})

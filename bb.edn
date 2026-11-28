@@ -2,6 +2,7 @@
 ;; SPDX-License-Identifier: 0BSD
 
 {:paths ["src"]
+ :deps {io.github.metio/briko {:git/sha "cf5d256fc4e7069a68cd23fb778351f9d2d43e24"}}
  :tasks
  {test {:doc "Runs all unit tests"
         :extra-paths ["test"]

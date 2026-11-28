@@ -1,0 +1,18 @@
+;; SPDX-FileCopyrightText: The aro Authors
+;; SPDX-License-Identifier: 0BSD
+
+{:git-root "~/git",
+ :sources
+ [{:id "metio", :github {:org "metio"}, :layout :worktrees}
+  {:id "infra",
+   :gitlab {:url "https://git.example.org", :group "infra.run"},
+   :session-dir "infra"}],
+ :hooks {:fetched ["true"]},
+ :manifest "~/state/generated",
+ :repositories
+ {"git.example.org:infra.run/tools/old" {:exclude true},
+  "github.com:metio/aro" {:branch "trunk", :dir "~/src/aro"}},
+ :inventory "~/state/inventory.edn",
+ :airmux-dir "~",
+ :groups [{:name "metio", :repositories ["github.com:metio/aro"]}],
+ :add [{:id "git@github.com:sebhoss/dotfiles.git", :source "metio"}]}
