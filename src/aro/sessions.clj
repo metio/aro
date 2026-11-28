@@ -9,6 +9,7 @@
   airmux's YAML; each session manager renders them in its own format."
   (:require [aro.model :as model]
             [babashka.fs :as fs]
+            [briko.fs :as fsx]
             [briko.paths :as paths]
             [cheshire.core :as json]
             [clojure.string :as str]
@@ -174,10 +175,20 @@
   [plan]
   (into {} (for [[path workspace] (:ttt plan)] [path (render-workspace workspace)])))
 
-(defn- write-if-changed! [path text]
+(defn- write-through!
+  "Replaces the file `path` names with `text` in one rename. A symbolic link
+  at `path`, as a dotfiles manager leaves one, stays and its target is
+  written, and a file being replaced keeps its permissions."
+  [path text fsync?]
+  (fsx/atomic-write! (str path) text {:symlink :follow :mode :keep :fsync? fsync?}))
+
+(defn- write-if-changed!
+  "Writes a generated file unless it already holds `text`. aro regenerates
+  these on every run, so they are not forced to disk."
+  [path text]
   (when (not= text (when (fs/exists? path) (slurp (str path))))
     (fs/create-dirs (fs/parent path))
-    (spit (str path) text)
+    (write-through! path text false)
     true))
 
 (defn- canonical [path]
@@ -200,5 +211,5 @@
                          :when (and (not (str/blank? path)) (not (contains? kept (canonical path))) (fs/exists? path))]
                      (do (fs/delete path) path)))]
     (fs/create-dirs (fs/parent manifest-path))
-    (spit (str manifest-path) (str (str/join "\n" kept) "\n"))
+    (write-through! manifest-path (str (str/join "\n" kept) "\n") true)
     {:written written :deleted stale}))

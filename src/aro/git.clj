@@ -10,7 +10,7 @@
   branch tracking its upstream, and `development` started from it without
   one."
   (:require [babashka.fs :as fs]
-            [babashka.process :as process]
+            [briko.process :as process]
             [clojure.string :as str]))
 
 (def development "development")
@@ -21,6 +21,29 @@
 
 (defn- getenv [variable] (System/getenv variable))
 
+(def output-limits
+  "What a git call keeps of its output. Stdout is parsed, so a call whose
+  stdout overruns its limit fails instead of being read as complete; 64 MiB
+  holds an ls-remote of hundreds of thousands of tags. Stderr only feeds
+  messages and keeps its last MiB, where git reports the error."
+  {:max-out-bytes (* 64 1024 1024)
+   :max-err-bytes (* 1024 1024)
+   :err-keep :tail})
+
+(defn- run-git
+  "Runs git with `args` and the variables `env` and returns {:exit :out
+  :err}. A call has no deadline unless `opts` gives one: clones, fetches and
+  maintenance of a large repository legitimately run for minutes. Stdin is
+  closed, so a git that wants input reads end of file instead of waiting."
+  [env args opts]
+  (let [opts (merge {:timeout-ms :none :extra-env env} output-limits opts)
+        {:keys [out-truncated?] :as result} (process/run (into ["git"] args) opts)]
+    (if out-truncated?
+      (assoc result
+             :exit 1
+             :err (str "the output of git " (first args) " exceeds " (:max-out-bytes opts) " bytes\n" (:err result)))
+      result)))
+
 (def ^:private ssh-configured?
   "Whether the user chose how git runs ssh for `dir`: GIT_SSH, or a
   core.sshCommand in any config git reads there. Memoized, since every git
@@ -28,8 +51,7 @@
   (memoize
    (fn [env dir]
      (or (not (str/blank? (getenv "GIT_SSH")))
-         (zero? (:exit (apply process/shell {:out :string :err :string :continue true :extra-env env}
-                              "git" (concat (when dir ["-C" dir]) ["config" "--get" "core.sshCommand"]))))))))
+         (zero? (:exit (run-git env (concat (when dir ["-C" dir]) ["config" "--get" "core.sshCommand"]) nil)))))))
 
 (defn- environment
   "The variables of a git call with `args`. GIT_SSH_COMMAND outranks both
@@ -44,11 +66,17 @@
            (not (ssh-configured? base dir)))
       (assoc "GIT_SSH_COMMAND" "ssh -o BatchMode=yes"))))
 
+(defn git-with
+  "Runs git with `args` and briko.process options `opts`, which replace
+  those of a plain call, and returns {:exit :out :err}."
+  [opts & args]
+  (let [args (mapv str args)]
+    (run-git (environment args) args opts)))
+
 (defn git
   "Runs git with `args` and returns {:exit :out :err}."
   [& args]
-  (let [args (map str args)]
-    (apply process/shell {:out :string :err :string :continue true :extra-env (environment args)} "git" args)))
+  (apply git-with nil args))
 
 (defn- git-out!
   "Runs git with `args` and returns its output as it came, throwing on
