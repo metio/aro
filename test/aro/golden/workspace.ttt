@@ -1,0 +1,13 @@
+{
+  "folders" : [ {
+    "path" : "/home/golden/git/github.com/metio/aro"
+  }, {
+    "path" : "/home/golden/git/codeberg.org/größe/日本語"
+  }, {
+    "path" : "/opt/with \"quote\" and \\backslash"
+  }, {
+    "path" : "/srv/a/b/"
+  }, {
+    "path" : "~/notes 🎹"
+  } ]
+}
