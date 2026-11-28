@@ -27,7 +27,7 @@ aro layout REPO worktrees|plain [--keep B]  # switch a clone between the layouts
 
 `aro clone --max N` clones at most N missing repositories and leaves the rest to the next run, so a timer works through a large backlog over several days instead of saturating the link in one go. `--delay SECONDS`, or `:delay` in the config, waits between two clones.
 
-`REPO` is an id such as `github.com:metio/aro`, a clone URL, or a directory inside a clone, so `aro layout . worktrees` works from within a repository. The config is read from `$XDG_CONFIG_HOME/aro/config.edn` unless `--config` names another file.
+`REPO` is an id such as `github.com:metio/aro`, a clone URL, or a directory inside a clone, so `aro layout . worktrees` works from within a repository. The config is read from `$XDG_CONFIG_HOME/aro/config.edn` unless `--config` names another file. It holds one EDN map without tagged literals, at most 1 mebibyte long, and the `:id` of every source is a non-blank string. The home directory is `$HOME` when that is an absolute path, else the `user.home` of the JVM. An `XDG_*` variable holding a relative path is ignored, as the XDG Base Directory Specification asks, and its default under the home directory applies.
 
 ## Fetching and the inventory
 
@@ -38,7 +38,7 @@ aro layout REPO worktrees|plain [--keep B]  # switch a clone between the layouts
  :hooks {:fetched ["/home/me/.local/bin/git-commit-and-push-file" "{inventory}" "chore: update the aro inventory"]}}
 ```
 
-Comment lines at the top of the inventory, such as a license header, survive a rewrite.
+Comment lines at the top of the inventory, such as a license header, survive a rewrite. The format comes from [briko](https://github.com/metio/briko)'s `briko.inventory`, which [krei](https://github.com/metio/krei) reads as well. A rewrite goes to a temporary file `.inventory.edn.briko-<32 hex digits>.tmp` beside the inventory. That file reaches the disk before it replaces the inventory in one rename, and it gets the mode the umask allows. Reading is strict. The command fails, naming the file, on an inventory larger than 8 mebibytes or holding a tagged literal. It fails the same way on a record missing a key or holding a value of the wrong type, and on a source listing one repository twice. `aro fetch` refuses to write records the inventory could not read back. A missing inventory reads as one without repositories.
 
 ## Sources
 
@@ -180,6 +180,8 @@ The `.breto.edn` names the `metio/toolchains` groups that pin babashka and the l
 eval "$(breto env)"
 bb test
 ```
+
+aro depends on briko as a git dependency in `bb.edn`, pinned to a commit; babashka fetches it on the first run.
 
 ## License
 

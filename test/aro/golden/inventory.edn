@@ -1,0 +1,13 @@
+;; SPDX-FileCopyrightText: The aro Authors
+;; SPDX-License-Identifier: 0BSD
+
+{"empty"
+ []
+ "infra"
+ [{:host "git.example.org" :path "infra.run/tools/fahrplan" :name "fahrplan" :namespace "infra.run/tools" :default-branch "trunk" :archived false :fork false :topics []}
+  {:host "git.example.org" :path "infra.run/tools/old" :name "old" :namespace "infra.run/tools" :default-branch "main" :archived false :fork false :topics []}]
+ "metio"
+ [{:host "github.com" :path "metio/archived" :name "archived" :namespace "metio" :default-branch "main" :archived true :fork false :topics []}
+  {:host "github.com" :path "metio/aro" :name "aro" :namespace "metio" :default-branch "main" :archived false :fork false :topics ["tmux" "git"] :properties {:a "1", :b "2", :c "3", :d "4", :e "5", :f "6", :features ["docs" "website"], :g "7", :mirrors "codeberg.org:metio/aro gitlab.com:metio/aro", :release "github"}}
+  {:host "github.com" :path "metio/forked" :name "forked" :namespace "metio" :default-branch "main" :archived false :fork true :topics []}
+  {:host "github.com" :path "metio/ünïcode \"quoted\"" :name "ünïcode \"quoted\"" :namespace "metio" :default-branch nil :archived false :fork false :topics []}]}

@@ -6,6 +6,7 @@
             [aro.sessions :as sessions]
             [aro.support :as s :refer [path]]
             [babashka.fs :as fs]
+            [briko.paths]
             [cheshire.core :as json]
             [clj-yaml.core :as yaml]
             [clojure.string :as str]
@@ -13,7 +14,7 @@
 
 (use-fixtures :each s/with-root)
 
-(def ^:private home (System/getProperty "user.home"))
+(def ^:private home (briko.paths/home))
 
 (defn- repository [name layout & {:as more}]
   (merge {:id (str "github.com:metio/" name) :name name :namespace "metio" :topics []

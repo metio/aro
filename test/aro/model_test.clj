@@ -4,6 +4,7 @@
 (ns aro.model-test
   (:require [aro.model :as model]
             [babashka.fs]
+            [briko.paths]
             [clojure.string]
             [clojure.test :refer [deftest is testing]]))
 
@@ -38,7 +39,7 @@
              (select-keys (by-id "git.example.org:infra.run/tools/fahrplan") [:layout :dir :session-file :branch]))))
     (testing "overrides"
       (let [aro (by-id "github.com:metio/aro")]
-        (is (= [:worktrees "trunk" (str (System/getProperty "user.home") "/src/aro") "metio/aro.yml" {:pane_commands nil}]
+        (is (= [:worktrees "trunk" (str (briko.paths/home) "/src/aro") "metio/aro.yml" {:pane_commands nil}]
                ((juxt :layout :branch :dir :session-file :session) aro)))))
     (testing "an addition spelled as a clone URL"
       (is (= "metio/sebhoss/dotfiles.yml" (:session-file (by-id "github.com:sebhoss/dotfiles")))))))
@@ -168,7 +169,7 @@
                      fahrplan)))))
 
 (deftest only-the-own-home-is-expanded
-  (let [home (System/getProperty "user.home")]
+  (let [home (briko.paths/home)]
     (is (= (str home "/src/aro") (model/expand-dir {:git-root "/g"} "~/src/aro")))
     (is (= home (model/expand-dir {:git-root "/g"} "~")))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"another user's home" (model/expand-dir {:git-root "/g"} "~other/x")))))

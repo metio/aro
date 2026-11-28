@@ -6,7 +6,6 @@
             [aro.config :as config]
             [aro.forge :as forge]
             [aro.git :as git]
-            [aro.inventory :as inventory]
             [aro.managers :as managers]
             [aro.model :as model]
             [aro.orphans :as orphans]
@@ -15,6 +14,7 @@
             [babashka.cli :as cli]
             [babashka.fs :as fs]
             [babashka.process :as process]
+            [briko.inventory :as inventory]
             [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import (java.util.concurrent Semaphore)))
@@ -68,6 +68,12 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
         :else (do (error "the " (name event) " hook exited with " exit) false)))
     true))
 
+(defn- read-inventory
+  "The inventory at `path`; a missing file is an inventory without sources,
+  as before the first `aro fetch`."
+  [path]
+  (inventory/read-file path {:missing :empty}))
+
 (defn fetch!
   "Fetches the sources named in `ids`, every source without, and writes the
   inventory. A source that fails keeps its previous records. Returns whether
@@ -78,7 +84,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
     (when (seq unknown)
       (throw (ex-info (str "unknown sources: " (str/join ", " unknown)) {:aro/problem :unknown-source})))
     (let [path (:inventory config)
-          before (inventory/read-inventory path)
+          before (read-inventory path)
           results (for [source (:sources config)
                         :when (or (empty? ids) (some #{(:id source)} ids))]
                     (try
@@ -94,14 +100,14 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
           results (doall results)
           after (reduce (fn [inv [id records]] (if records (assoc-in inv [:sources id] records) inv))
                         before results)]
-      (let [hook-ok (if (inventory/write-inventory! path after)
+      (let [hook-ok (if (inventory/write! path after)
                       (do (ok "wrote " path)
                           (run-hook! config :fetched {:inventory path}))
                       true)]
         (and (every? second results) hook-ok)))))
 
 (defn- repositories [config]
-  (model/repositories config (:sources (inventory/read-inventory (:inventory config)))))
+  (model/repositories config (:sources (read-inventory (:inventory config)))))
 
 (defn- list! [repositories]
   (doseq [r repositories]
@@ -142,7 +148,7 @@ REPO is an id like github.com:metio/aro or a directory inside a clone.")
 
 (defn- compare! [config {:keys [toml]}]
   (let [result (compare/compare-all config
-                                    (:sources (inventory/read-inventory (:inventory config)))
+                                    (:sources (read-inventory (:inventory config)))
                                     (compare/read-toml-repositories toml))]
     (doseq [[status text] (sort-by first (:report result))]
       (println (str "[" (str/upper-case (name status)) "] " text)))

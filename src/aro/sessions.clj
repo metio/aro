@@ -9,6 +9,7 @@
   airmux's YAML; each session manager renders them in its own format."
   (:require [aro.model :as model]
             [babashka.fs :as fs]
+            [briko.paths :as paths]
             [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.walk :as walk]))
@@ -18,7 +19,7 @@
 (defn home-relative
   "`dir` with the home directory spelled ${HOME}, as airmux expands it."
   [dir]
-  (let [home (System/getProperty "user.home")]
+  (let [home (paths/home)]
     (if (or (= dir home) (str/starts-with? dir (str home "/")))
       (str "${HOME}" (subs dir (count home)))
       dir)))

@@ -1,0 +1,4 @@
+git.example.org:infra.run/tools/fahrplan	plain	trunk	/srv/aro-golden/git/git.example.org/infra.run/tools/fahrplan
+github.com:metio/aro	worktrees	trunk	/srv/aro-golden/src/aro
+github.com:metio/ünïcode "quoted"	worktrees	main	/srv/aro-golden/git/github.com/metio/ünïcode "quoted"
+github.com:sebhoss/dotfiles	worktrees	main	/srv/aro-golden/git/github.com/sebhoss/dotfiles

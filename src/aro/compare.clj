@@ -10,6 +10,7 @@
             [aro.model :as model]
             [aro.sessions :as sessions]
             [babashka.fs :as fs]
+            [briko.paths :as paths]
             [cheshire.core :as json]
             [clj-yaml.core :as yaml]
             [clojure.string :as str]
@@ -25,7 +26,7 @@
                  x))
 
 (defn- expand-home [s]
-  (some-> s (str/replace "${HOME}" (System/getProperty "user.home"))))
+  (some-> s (str/replace "${HOME}" (paths/home))))
 
 (defn- canonical [dir]
   (when-not (str/blank? dir)

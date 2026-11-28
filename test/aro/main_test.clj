@@ -2,11 +2,11 @@
 ;; SPDX-License-Identifier: 0BSD
 
 (ns aro.main-test
-  (:require [aro.inventory :as inventory]
-            [aro.git :as git]
+  (:require [aro.git :as git]
             [aro.main :as main]
             [aro.support :as s :refer [path]]
             [babashka.fs :as fs]
+            [briko.inventory :as inventory]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]))
 
@@ -45,12 +45,12 @@
                 :hooks {:fetched ["sh" "-c" (str "echo {inventory} >> " (path "hook"))]}
                 :sources [{:id "a" :github {:org "a"}} {:id "b" :github {:org "b"}}]}
         old {:host "github.com" :path "b/old" :name "old" :namespace "b" :default-branch "main" :archived false :fork false :topics []}]
-    (inventory/write-inventory! (:inventory config) {:header "" :sources {"b" [old]}})
+    (inventory/write! (:inventory config) {:header "" :sources {"b" [old]}})
     (is (false? (main/fetch! config [] :get-json (getter {"https://api.github.com/orgs/a/repos?type=all&per_page=100&page=1"
                                                          [{:name "x" :full_name "a/x" :default_branch "main" :topics []}]
                                                          "https://api.github.com/orgs/b/repos?type=all&per_page=100&page=1"
                                                          (ex-info "down" {})}))))
-    (is (= {"a" ["a/x"] "b" ["b/old"]} (update-vals (:sources (inventory/read-inventory (:inventory config))) #(map :path %))))
+    (is (= {"a" ["a/x"] "b" ["b/old"]} (update-vals (:sources (inventory/read-file (:inventory config))) #(map :path %))))
     (is (= (str (path "inventory.edn") "\n") (slurp (path "hook"))))))
 
 (deftest unknown-sources-are-refused
@@ -161,3 +161,41 @@
     (is (= ["github.com:metio/aro"] (map #(first (str/split % #"\t")) (str/split-lines (str out))))))
   (binding [*out* (java.io.StringWriter.) *err* (java.io.StringWriter.)]
     (is (= 1 (main/run ["--config" (path "config.edn") "list" "github.com:metio/typo"])) "an unknown repository is refused")))
+
+(defn- run-list
+  "The exit code, stdout and stderr of `aro list` with a config holding
+  `config` and the state paths of this test."
+  [config]
+  (spit (path "config.edn") (pr-str (merge {:git-root (path "git") :inventory (path "inventory.edn")
+                                            :manifest (path "generated")}
+                                           config)))
+  (let [out (java.io.StringWriter.) err (java.io.StringWriter.)]
+    (binding [*out* out *err* err]
+      [(main/run ["--config" (path "config.edn") "list"]) (str out) (str err)])))
+
+(deftest a-missing-inventory-lists-no-repositories
+  (is (= [0 "" ""] (run-list {}))))
+
+(deftest a-malformed-inventory-fails-with-the-file-named
+  (doseq [text ["{\"metio\" [{:host \"github.com\" :path \"metio/aro\"}]}\n"
+                "{\"metio\" [] \"metio\" []}\n"
+                "{\"metio\" [#inst \"2026-01-01\"]}\n"]]
+    (spit (path "inventory.edn") text)
+    (let [[exit out err] (run-list {})]
+      (is (= 1 exit) text)
+      (is (= "" out) text)
+      (is (str/starts-with? err (str "[ERROR] " (path "inventory.edn") ": ")) text))))
+
+(deftest a-fetch-refuses-to-write-a-record-the-inventory-cannot-hold
+  (let [config {:inventory (path "inventory.edn") :sources [{:id "a" :github {:org "a"}}]}]
+    (binding [*out* (java.io.StringWriter.) *err* (java.io.StringWriter.)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #":topics"
+                            (main/fetch! config [] :get-json (getter {"https://api.github.com/orgs/a/repos?type=all&per_page=100&page=1"
+                                                                     [{:name "x" :full_name "a/x" :default_branch "main" :topics [1]}]})))))
+    (is (not (fs/exists? (path "inventory.edn"))))))
+
+(deftest a-source-id-must-be-a-non-blank-string
+  (doseq [id [:metio "" "  " nil 7]]
+    (let [[exit _ err] (run-list {:sources [{:id id :github {:org "metio"}}]})]
+      (is (= 1 exit) (pr-str id))
+      (is (str/includes? err "the :id of every source must be a non-blank string") (pr-str id)))))

@@ -8,3 +8,9 @@ path = "renovate.json"
 precedence = "override"
 SPDX-FileCopyrightText = "The aro Authors"
 SPDX-License-Identifier = "0BSD"
+
+[[annotations]]
+path = "test/aro/golden/**"
+precedence = "override"
+SPDX-FileCopyrightText = "The aro Authors"
+SPDX-License-Identifier = "0BSD"

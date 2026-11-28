@@ -1,0 +1,23 @@
+{:add [{:id "git@github.com:sebhoss/dotfiles.git", :source "metio"}],
+ :airmux-dir "/home/golden",
+ :git-root "/home/golden/git",
+ :groups [{:name "metio", :repositories ["github.com:metio/aro"]}],
+ :hooks {:fetched ["true"]},
+ :inventory "/home/golden/state/inventory.edn",
+ :layout :plain,
+ :manifest "/home/golden/state/generated",
+ :push-mirrors false,
+ :quiet-hours 24,
+ :repositories
+ {"git.example.org:infra.run/tools/old" {:exclude true},
+  "github.com:metio/aro" {:branch "trunk", :dir "~/src/aro"}},
+ :sesh-file "/home/golden/.config/sesh/aro.toml",
+ :session-managers [:airmux],
+ :sessions {},
+ :sources
+ [{:id "metio", :github {:org "metio"}, :layout :worktrees}
+  {:id "infra",
+   :gitlab {:url "https://git.example.org", :group "infra.run"},
+   :session-dir "infra"}],
+ :switch-merged false,
+ :ttt-dir "/home/golden/.local/share/ttt"}

@@ -3,52 +3,67 @@
 
 (ns aro.config
   "The configuration: where repositories come from, what to change about
-  them, how to group them, and where the generated files go."
+  them, how to group them, and where the generated files go.
+
+  Every function takes briko.paths's environment options, {:getenv f
+  :getprop f}, so the home directory and the XDG base directories can be
+  given instead of read from the process."
   (:require [babashka.fs :as fs]
-            [clojure.edn :as edn]
+            [briko.inventory :as inventory]
+            [briko.paths :as paths]
             [clojure.string :as str]))
 
-(defn home []
-  (System/getProperty "user.home"))
+(defn home
+  ([] (home nil))
+  ([opts] (paths/home opts)))
 
-(defn- env-dir [variable fallback]
-  (let [value (System/getenv variable)]
-    (if (str/blank? value) (str (fs/path (home) fallback)) value)))
+(defn default-path
+  ([] (default-path nil))
+  ([opts] (str (fs/path (paths/config-home opts) "aro" "config.edn"))))
 
-(defn default-path []
-  (str (fs/path (env-dir "XDG_CONFIG_HOME" ".config") "aro" "config.edn")))
+(defn defaults
+  ([] (defaults nil))
+  ([opts]
+   {:sources []
+    :repositories {}
+    :add []
+    :groups []
+    :sessions {}
+    :git-root (str (fs/path (paths/home opts) "git"))
+    :session-managers [:airmux]
+    :airmux-dir (str (fs/path (paths/config-home opts) "airmux"))
+    :sesh-file (str (fs/path (paths/config-home opts) "sesh" "aro.toml"))
+    :manifest (str (fs/path (paths/state-home opts) "aro" "generated"))
+    :ttt-dir (str (fs/path (paths/data-home opts) "ttt"))
+    :inventory (inventory/default-path opts)
+    :layout :plain
+    :push-mirrors false
+    :switch-merged false
+    :quiet-hours 24
+    :hooks {}}))
 
-(defn defaults []
-  {:sources []
-   :repositories {}
-   :add []
-   :groups []
-   :sessions {}
-   :git-root (str (fs/path (home) "git"))
-   :session-managers [:airmux]
-   :airmux-dir (str (fs/path (env-dir "XDG_CONFIG_HOME" ".config") "airmux"))
-   :sesh-file (str (fs/path (env-dir "XDG_CONFIG_HOME" ".config") "sesh" "aro.toml"))
-   :manifest (str (fs/path (env-dir "XDG_STATE_HOME" ".local/state") "aro" "generated"))
-   :ttt-dir (str (fs/path (env-dir "XDG_DATA_HOME" ".local/share") "ttt"))
-   :inventory (str (fs/path (env-dir "XDG_STATE_HOME" ".local/state") "aro" "inventory.edn"))
-   :layout :plain
-   :push-mirrors false
-   :switch-merged false
-   :quiet-hours 24
-   :hooks {}})
+(defn expand-home
+  ([s] (expand-home s nil))
+  ([s opts] (paths/expand-home s opts)))
 
-(defn expand-home [s]
-  (some-> s (str/replace-first #"^~(?=/|$)" (home))))
+(def ^:private home-paths
+  [[:git-root] [:airmux-dir] [:sesh-file] [:manifest] [:ttt-dir] [:inventory]])
+
+(defn- check-sources!
+  "Refuses sources whose :id is not a non-blank string: the id is the key of
+  the source's records in the inventory, which holds only such keys."
+  [{:keys [sources] :as config}]
+  (doseq [source sources
+          :let [id (:id source)]
+          :when (not (and (string? id) (not (str/blank? id))))]
+    (throw (ex-info (str "the :id of every source must be a non-blank string, not " (pr-str id))
+                    {:aro/problem :invalid-config})))
+  config)
 
 (defn load-config
   "Reads the EDN config at `path` over the defaults. A missing file means all
   defaults."
-  [path]
-  (let [user (when (fs/exists? path) (edn/read-string (slurp (str path))))]
-    (-> (merge (defaults) user)
-        (update :git-root expand-home)
-        (update :airmux-dir expand-home)
-        (update :sesh-file expand-home)
-        (update :manifest expand-home)
-        (update :ttt-dir expand-home)
-        (update :inventory expand-home))))
+  ([path] (load-config path nil))
+  ([path opts]
+   (-> (paths/load-edn-config path (defaults opts) (merge opts {:home-paths home-paths}))
+       check-sources!)))
