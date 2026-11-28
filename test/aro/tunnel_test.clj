@@ -3,7 +3,9 @@
 
 (ns aro.tunnel-test
   (:require [aro.tunnel :as tunnel]
+            [babashka.classpath :as classpath]
             [babashka.fs :as fs]
+            [babashka.process :as bp]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]])
   (:import (java.io BufferedReader InputStreamReader)
@@ -150,3 +152,51 @@
       (testing "the failure names the program"
         (is (some? e))
         (is (re-find #"/nonexistent/aro-test/ssh" (str (ex-message e))))))))
+
+(deftest a-missing-ssh-is-a-tunnel-problem
+  (with-redefs [tunnel/ssh-command (fn [_ _] ["/nonexistent/aro-test/ssh" "-N"])]
+    (let [e (try (tunnel/open source-tunnel :timeout-ms 1000) nil (catch Exception e e))]
+      (is (re-find #"^ssh admin@git\.aro\.test ended before forwarding forge\.aro\.test:443: could not run the program: "
+                   (str (ex-message e))))
+      (is (= {:aro/problem :tunnel} (select-keys (ex-data e) [:aro/problem]))))))
+
+(deftest close-returns-once-the-forward-is-gone
+  (with-stand-in "listen"
+    (fn [pid]
+      (let [open-tunnel (tunnel/open source-tunnel :settle-ms 100)]
+        (is (alive? (pid)) "control: the forward runs before close")
+        (tunnel/close open-tunnel)
+        (is (not (alive? (pid))))
+        (is (not (accepts? (:port open-tunnel))))
+        (testing "a second close does nothing"
+          (tunnel/close open-tunnel))))))
+
+(deftest the-message-of-a-chatty-ssh-keeps-the-end-of-its-stderr
+  (with-stand-in "noisy-exit"
+    (fn [_]
+      (let [message (ex-message (try (tunnel/open source-tunnel) nil (catch Exception e e)))]
+        (is (re-find #"ended before forwarding" message))
+        (is (re-find #"Permission denied \(publickey\)\.\s*$" message))
+        (is (< (count message) (+ 65536 200)) "stderr is kept up to its last 64 KiB")
+        (is (> (count message) 60000) "control: the stand-in wrote more than the kept tail")))))
+
+(deftest a-terminated-aro-stops-its-forward
+  (with-stand-in "listen"
+    (fn [pid]
+      (let [pid-file (nth (tunnel/ssh-command source-tunnel 1) 3)
+            script (pr-str
+                    `(do (require 'aro.tunnel)
+                         (alter-var-root #'aro.tunnel/ssh-command
+                                         (constantly (fn [~'_ ~'port] [~babashka ~stand-in "listen" ~pid-file "-L" (str "127.0.0.1:" ~'port ":x") "h"])))
+                         (aro.tunnel/open {:ssh "h" :target "x"} :settle-ms 100)
+                         (println "open")
+                         (Thread/sleep 60000)))
+            aro (bp/process {:err :inherit} babashka "-cp" (classpath/get-classpath) "-e" script)]
+        (try
+          (is (= "open" (.readLine (BufferedReader. (InputStreamReader. (:out aro))))))
+          (is (alive? (pid)) "control: the forward runs while aro runs")
+          (bp/destroy aro)
+          (is (not= 0 (:exit @aro)))
+          (is (eventually #(not (alive? (pid)))))
+          (finally
+            (bp/destroy-tree aro)))))))

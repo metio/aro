@@ -5,19 +5,12 @@
   "An SSH port forward to a forge API that is only reachable from its own
   host. Requests keep the forge's URL and reach the forwarded port through
   briko.http's :connect-to, so TLS still checks the forge's certificate."
-  (:require [babashka.process :as process])
-  (:import (java.net InetSocketAddress ServerSocket Socket)))
+  (:require [briko.process :as process])
+  (:import (java.net ServerSocket)))
 
 (defn- free-port []
   (with-open [socket (ServerSocket. 0)]
     (.getLocalPort socket)))
-
-(defn- listening? [port]
-  (try
-    (with-open [socket (Socket.)]
-      (.connect socket (InetSocketAddress. "127.0.0.1" (int port)) 200)
-      true)
-    (catch Exception _ false)))
 
 (defn ssh-command
   "The ssh call forwarding local `port` to the tunnel's :target, seen from
@@ -37,32 +30,30 @@
   connections while ssh still runs `settle-ms` later. Another process may
   bind the free port before ssh does; ssh then exits on the failed forward
   right after authenticating, and the port must not count as the tunnel.
-  Returns {:process :port}."
+  ssh is stopped when the forward fails, on `close`, and when the JVM
+  shuts down. Returns {:process :port}."
   [tunnel & {:keys [timeout-ms settle-ms] :or {timeout-ms 15000 settle-ms 1000}}]
   (let [port (free-port)
-        proc (apply process/process {:out :string :err :string} (ssh-command tunnel port))
-        deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop [ready-since nil]
-      (let [now (System/currentTimeMillis)]
-        (cond
-          (not (.isAlive ^Process (:proc proc)))
-          (throw (ex-info (str "ssh " (:ssh tunnel) " ended before forwarding " (:target tunnel) ": " @(:err proc))
+        handle (process/start (vec (ssh-command tunnel port)))]
+    (try
+      (process/wait-ready handle {:port port :settle-ms settle-ms :timeout-ms timeout-ms})
+      {:process handle :port port}
+      (catch clojure.lang.ExceptionInfo e
+        (case (:type (ex-data e))
+          ::process/exited-before-ready
+          (throw (ex-info (str "ssh " (:ssh tunnel) " ended before forwarding " (:target tunnel) ": "
+                               (:err (process/output handle)))
                           {:aro/problem :tunnel}))
 
-          (and ready-since (>= (- now ready-since) settle-ms))
-          {:process proc :port port}
+          ::process/ready-timeout
+          (throw (ex-info (str "ssh " (:ssh tunnel) " did not forward " (:target tunnel) " within " (quot timeout-ms 1000) "s")
+                          {:aro/problem :tunnel}))
 
-          (> now deadline)
-          (do (process/destroy-tree proc)
-              (throw (ex-info (str "ssh " (:ssh tunnel) " did not forward " (:target tunnel) " within " (quot timeout-ms 1000) "s")
-                              {:aro/problem :tunnel})))
-
-          :else
-          (do (Thread/sleep 100)
-              (recur (or ready-since (when (listening? port) now)))))))))
+          (do (process/close handle)
+              (throw e)))))))
 
 (defn close [{:keys [process]}]
-  (process/destroy-tree process))
+  (process/close process))
 
 (defn with-tunnel
   "Calls `f` with the briko.http options reaching the forge: none without
