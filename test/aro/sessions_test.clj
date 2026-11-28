@@ -217,3 +217,10 @@
     (sessions/write! {file "session_name: a\n"} (path "state" "generated"))
     (is (= "rw-------" (fs/posix->str (fs/posix-file-permissions file))))
     (is (= "session_name: a\n" (slurp file)))))
+
+(deftest a-workspace-renders-byte-for-byte-as-before-briko-json
+  (testing "test/aro/golden/workspace.ttt was written by aro ddc00bd through cheshire"
+    (is (= (slurp "test/aro/golden/workspace.ttt")
+           (sessions/render-workspace
+            (sessions/ttt-workspace [{:dir "/home/golden/git/github.com/metio/aro"} {:dir "/home/golden/git/codeberg.org/größe/日本語"}]
+                                    ["/opt/with \"quote\" and \\backslash" "/srv/a/b/" "~/notes 🎹"]))))))
